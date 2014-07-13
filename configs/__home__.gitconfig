@@ -1,16 +1,18 @@
+; conf-sync managed
+
 [user]
 	name = quinox
 	email = quinox@qtea.nl
 [push]
 	default = simple
 
-# sync-conf begin-section=color
+; conf-sync begin-section=color
 [color]
 	ui = auto
     interactive = auto
-# sync-conf end-section
+; conf-sync end-section
 
-# sync-conf begin-section=alias
+; conf-sync begin-section=alias
 [alias]
     br = branch
     ci = commit -a -v
@@ -21,4 +23,4 @@
     st = status --ignore-submodules -sb
     mg = merge --no-commit
     s = status --short
-# sync-config end-section
+; conf-syncig end-section

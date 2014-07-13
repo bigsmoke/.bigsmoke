@@ -3,6 +3,7 @@ from collections import OrderedDict
 from difflib import unified_diff
 from io import StringIO
 from subprocess import Popen, PIPE
+from tempfile import NamedTemporaryFile
 import cmd
 import itertools
 import logging
@@ -14,50 +15,91 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_LOG_LEVEL = 20  # Warning+error+critical
 HOME_NEEDLE = '__home__'
-CONFIG_NEEDLE = '# sync-conf '
+CONFIG_NEEDLE = 'conf-sync '
+
+
+def _color(text, color):
+    prefix = ''
+    suffix = '\033[0m'
+    if color == 'green':
+        prefix = '\033[92m'
+    elif color == 'yellow':
+        prefix = '\033[93m'
+    else:
+        prefix = '\033[91m'
+
+    return '{}{}{}'.format(prefix, text, suffix)
 
 def read_sections(configfile):
     sections = OrderedDict()
 
     unknown_count = 0
     current_section = 'unknown-0'
-    
+    commenttag = '?'
+   
     with open(configfile) as handle:
-        for line in (line.rstrip('\n') for line in handle):
+        for (lineno, line) in enumerate(line.rstrip('\n') for line in handle):
             # Processing options
-            if line.startswith(CONFIG_NEEDLE):
-                options = [x.split('=', 1) for x in line[len(CONFIG_NEEDLE):].split(' ')]
+            if lineno == 0:
+                if line[1:].strip() == 'conf-sync managed':
+                    commenttag = line[0]
+                    config_needle = '{} {} '.format(commenttag, CONFIG_NEEDLE)
+                    managed_config_file = True
+                    current_section = 'header'
+                else:
+                    logger.warning('File {} is not managed.'.format(configfile))
+                    managed_config_file = False
+                    current_section = 'unmanaged'
+            if managed_config_file and line.startswith(commenttag) and line[1:].strip().startswith(CONFIG_NEEDLE):
+                options = [x.split('=', 1) for x in line[line.find(CONFIG_NEEDLE) + len(CONFIG_NEEDLE):].split(' ')]
                 for option in options:
                     if option[0] == 'begin-section':
                         current_section = option[1]
                     elif option[0] == 'end-section':
                         current_section = 'unknown-{}'.format(unknown_count)
                         unknown_count += 1
+                    elif option[0] == 'managed':
+                        if lineno != 0:
+                            logger.warning('Ignoring managed option after the head.')
                     else:
-                        raise Exception("Unknown config option {} while processing []".format(option, line))
+                        raise Exception('Unknown config option {} while processing {}'.format(option, line))
             # Storing line
             if current_section not in sections:
                 sections[current_section] = []
             section = sections.get(current_section, [])
             section.append(line)
+
+    sections.managed = managed_config_file
     return sections
 
 
 class SourceConfig:
-    
+    '''
+
+    Statuses:
+    - unknown: call update_conf_status to determine update
+    - missing: destination file is missing
+    - unmanaged: destination file is not managed, while the source file is
+    - outdated: destination/source are both managed/unmanaged but differ in content
+    - up-to-date: destination/source are the same
+    '''
+
     def __init__(self, source=None, destination=None):
         self.source = source
         self.destination = destination
-        self.status = 'Unknown'
+        self.status = 'unknown'
         self.source_sections = read_sections(self.source)
-        self.destination_sections = read_sections(self.destination)
+        try:
+            self.destination_sections = read_sections(self.destination)
+        except FileNotFoundError:
+            logger.info('Could not read {}'.format(self.destination))
 
     def __str__(self):
         return 'SourceConfig({} -> {})'.format(self.source, self.destination)
 
     @property
     def needs_updating(self):
-        return self.status in ('missing', 'outdated')
+        return self.status in ('missing', 'outdated', 'unmanaged')
 
     @property
     def source_lines(self):
@@ -88,6 +130,10 @@ def update_conf_status(conf):
     if not os.path.exists(conf.destination):
         conf.status = 'Missing'
         return
+    
+    if not conf.destination_sections.managed and conf.source_sections.managed:
+        conf.status = 'unmanaged'
+        return
 
     logger.debug('Generating diff between %s and %s', conf.source, conf.destination)
     diff = generate_diff(conf)
@@ -95,26 +141,27 @@ def update_conf_status(conf):
     if next(diff, None) is not None:
         logger.info('Configuration {} can be updated.'.format(conf.destination))
         conf.status = 'outdated'
-    else:
-        logger.info('Configuration file {} is up-to-date'.format(conf.destination))
-        conf.status = 'up-to-date'
+        return
+
+    logger.info('Configuration file {} is up-to-date'.format(conf.destination))
+    conf.status = 'up-to-date'
 
 
 def load_configurations(options):
     configurations = []
     for filename in os.listdir(options.source_dir):
         if filename.startswith('.') and filename.endswith('.swp'):
-            logger.debug("Skipping %s as its a temporary file made by editors.", filename)
+            logger.debug('Skipping %s as its a temporary file made by editors.', filename)
             continue
         full_path = os.path.join(options.source_dir, filename)
-        logger.debug("Found: {}".format(filename))
+        logger.debug('Found: {}'.format(filename))
         if os.path.isfile(full_path):
             source = full_path
             if filename.startswith(HOME_NEEDLE):
                 destination = os.path.expanduser('~/' + filename[len(HOME_NEEDLE):])
             configurations.append(SourceConfig(source=source, destination=destination))
             
-    logger.info("Found %s useable configuration files.", len(configurations))
+    logger.info('Found %s useable configuration files.', len(configurations))
     
     return configurations
 
@@ -152,14 +199,14 @@ def run_from_cli():
 
     if args.input_sequence:
         for command in args.input_sequence.split(','):
-            print("{0}{1} [guided input]".format(cui.prompt, command))
+            print('{0}{1} [guided input]'.format(cui.prompt, command))
             cui.onecmd(command)
-        print("<< end of guided input reached. >>")
+        print('<< end of guided input reached. >>')
     else:
-        print("")
+        print('')
         cui.onecmd('list')
         cui.cmdloop()
-        print("")
+        print('')
 
 class CmdExitMixin:
 
@@ -177,8 +224,8 @@ class CmdExitMixin:
         return True
 
     def help_exit(self):
-        print("Exit the interpreter.")
-        print("You can also use the Ctrl-D shortcut.")
+        print('Exit the interpreter.')
+        print('You can also use the Ctrl-D shortcut.')
 
     do_EOF = do_exit
     help_EOF= help_exit
@@ -204,34 +251,41 @@ class Cui(CmdExitMixin, cmd.Cmd):
 
     def __init__(self, *args, options=None, **kwargs):
         self.options = options
-        self.configurations = load_configurations(self.options)
-        update_all_configuration_statuses(self.configurations)
         self.prompt = '\n(config) '
+        print('')
+        self._do_reread()
         super().__init__(*args, **kwargs)
 
     def do_list(self, s):
-        print("{:>3} {:^10} {}".format('ID', 'Status', 'Configuration file'))
-        print("{:-^3} {:-^10} {:-^5}".format('', '', ''))
+        print('')
+        print('{:>3} {:^10} {}'.format('ID', 'Status', 'Configuration file'))
+        print('{:-^3} {:-^10} {:-^5}'.format('', '', ''))
         for (one_based_index, conf) in enumerate(self.configurations, start=1):
-            print("{:>3} {:^10} {}".format(one_based_index, conf.status, conf.destination))
+            print('{:>3} {:^10} {}'.format(one_based_index, conf.status, conf.destination))
 
     def emptyline(self):
         pass
 
     @config_choice
     def do_show(self, conf):
-        print("""
+        print('''
+Current state: {0.status}
 Source:        {0.source}
-- Sections:    {1}
-
-Destination:   {0.destination}
-- Sections:    {2}
-
-Current state: {0.status}""".format(
+Destination:   {0.destination}'''.format(
             conf,
-            ', '.join(conf.source_sections.keys()),
-            ', '.join(conf.destination_sections.keys()),
         ))
+        source_keys = list(conf.source_sections.keys())
+        destination_keys = list(conf.destination_sections.keys())
+        if source_keys == destination_keys:
+            print('Section:       ', end='')
+            for key in source_keys:
+                if conf.source_sections[key] == conf.destination_sections[key]:
+                    print(_color(key, 'green'), end=' ')
+                else:
+                    print(_color(key, 'red'), end=' ')
+            print('')
+        else:
+            print('diff sections. {} != {}'.format(source_keys, destination_keys))
 
     @config_choice
     def do_diff(self, conf):
@@ -241,9 +295,24 @@ Current state: {0.status}""".format(
 
     @config_choice
     def do_update(self, conf):
+        if os.path.exists(conf.destination):
+            with NamedTemporaryFile('w', prefix=conf.destination.replace(os.sep, '_'), delete=False) as backup:
+                with open(conf.destination) as oldfile:
+                    backup.write(oldfile.read())
+                logger.warning('Made backup of {} as {}'.format(conf.destination, backup.name))
         with open(conf.destination, 'w') as handle:
             handle.write('\n'.join(conf.source_lines))
-        print("OK")
+        print('Updated {}'.format(conf.destination))
+
+    def do_reread(self, s):
+        print('')
+        self._do_reread()
+        print('')
+        self.do_list(s)
+
+    def _do_reread(self):
+        self.configurations = load_configurations(self.options)
+        update_all_configuration_statuses(self.configurations)
 
 if __name__ == '__main__':
 

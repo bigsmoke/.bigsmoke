@@ -1,0 +1,250 @@
+#!/usr/bin/python3
+from collections import OrderedDict
+from difflib import unified_diff
+from io import StringIO
+from subprocess import Popen, PIPE
+import cmd
+import itertools
+import logging
+import os
+import sys
+
+
+logger = logging.getLogger(__name__)
+
+DEFAULT_LOG_LEVEL = 20  # Warning+error+critical
+HOME_NEEDLE = '__home__'
+CONFIG_NEEDLE = '# sync-conf '
+
+def read_sections(configfile):
+    sections = OrderedDict()
+
+    unknown_count = 0
+    current_section = 'unknown-0'
+    
+    with open(configfile) as handle:
+        for line in (line.rstrip('\n') for line in handle):
+            # Processing options
+            if line.startswith(CONFIG_NEEDLE):
+                options = [x.split('=', 1) for x in line[len(CONFIG_NEEDLE):].split(' ')]
+                for option in options:
+                    if option[0] == 'begin-section':
+                        current_section = option[1]
+                    elif option[0] == 'end-section':
+                        current_section = 'unknown-{}'.format(unknown_count)
+                        unknown_count += 1
+                    else:
+                        raise Exception("Unknown config option {} while processing []".format(option, line))
+            # Storing line
+            if current_section not in sections:
+                sections[current_section] = []
+            section = sections.get(current_section, [])
+            section.append(line)
+    return sections
+
+
+class SourceConfig:
+    
+    def __init__(self, source=None, destination=None):
+        self.source = source
+        self.destination = destination
+        self.status = 'Unknown'
+        self.source_sections = read_sections(self.source)
+        self.destination_sections = read_sections(self.destination)
+
+    def __str__(self):
+        return 'SourceConfig({} -> {})'.format(self.source, self.destination)
+
+    @property
+    def needs_updating(self):
+        return self.status in ('missing', 'outdated')
+
+    @property
+    def source_lines(self):
+        return list(itertools.chain(*self.source_sections.values()))
+    
+    @property
+    def destination_lines(self):
+        return list(itertools.chain(*self.destination_sections.values()))
+
+
+def update_all_configuration_statuses(configurations):
+    for conf in configurations:
+        update_conf_status(conf)
+
+
+def generate_diff(conf):
+    diff = unified_diff(
+        conf.destination_lines,
+        conf.source_lines,
+        'repo' + conf.destination,
+        'fs' + conf.destination,
+        lineterm='',
+    )
+    return diff
+
+
+def update_conf_status(conf):
+    if not os.path.exists(conf.destination):
+        conf.status = 'Missing'
+        return
+
+    logger.debug('Generating diff between %s and %s', conf.source, conf.destination)
+    diff = generate_diff(conf)
+
+    if next(diff, None) is not None:
+        logger.info('Configuration {} can be updated.'.format(conf.destination))
+        conf.status = 'outdated'
+    else:
+        logger.info('Configuration file {} is up-to-date'.format(conf.destination))
+        conf.status = 'up-to-date'
+
+
+def load_configurations(options):
+    configurations = []
+    for filename in os.listdir(options.source_dir):
+        if filename.startswith('.') and filename.endswith('.swp'):
+            logger.debug("Skipping %s as its a temporary file made by editors.", filename)
+            continue
+        full_path = os.path.join(options.source_dir, filename)
+        logger.debug("Found: {}".format(filename))
+        if os.path.isfile(full_path):
+            source = full_path
+            if filename.startswith(HOME_NEEDLE):
+                destination = os.path.expanduser('~/' + filename[len(HOME_NEEDLE):])
+            configurations.append(SourceConfig(source=source, destination=destination))
+            
+    logger.info("Found %s useable configuration files.", len(configurations))
+    
+    return configurations
+
+
+def run_from_cli():
+    
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.DEBUG)
+    formatter = logging.Formatter('%(asctime)s %(message)s', datefmt='%H:%M:%S')
+    ch.setFormatter(formatter)
+    logger.addHandler(ch)
+
+    default_source_directory = os.path.join(os.path.dirname(__file__), 'configs')
+
+    import argparse
+    parser = argparse.ArgumentParser(description='Manage dot files.')
+    parser.add_argument('-s', '--source-dir', help='Directory with configuration files. Default: %(default)s', default=default_source_directory)
+    parser.add_argument('-v', '--verbose', action='count', default=0)
+    parser.add_argument('-q', '--quiet', action='count', default=0)
+    parser.add_argument('--input-sequence', help=argparse.SUPPRESS)  # comma separated
+
+    args = parser.parse_args()
+
+    desired_loglevel = (DEFAULT_LOG_LEVEL - ((args.verbose - args.quiet) * 10))
+    
+    logger.setLevel(desired_loglevel)
+
+    #logger.debug('This is a debug message.')
+    #logger.info('This is an info message.')
+    #logger.warning('This is a warning message.')
+    #logger.error('This is an error message.')
+    #logger.critical('This is a critical message.')
+
+    cui = Cui(options=args)
+
+    if args.input_sequence:
+        for command in args.input_sequence.split(','):
+            print("{0}{1} [guided input]".format(cui.prompt, command))
+            cui.onecmd(command)
+        print("<< end of guided input reached. >>")
+    else:
+        print("")
+        cui.onecmd('list')
+        cui.cmdloop()
+        print("")
+
+class CmdExitMixin:
+
+    def can_exit(self):
+        return True
+
+    def onecmd(self, line):
+        r = super().onecmd(line)
+        if r and (self.can_exit() or
+           raw_input('exit anyway ? (yes/no):')=='yes'):
+             return True
+        return False
+
+    def do_exit(self, s):
+        return True
+
+    def help_exit(self):
+        print("Exit the interpreter.")
+        print("You can also use the Ctrl-D shortcut.")
+
+    do_EOF = do_exit
+    help_EOF= help_exit
+
+
+def config_choice(f):
+    def call_f_with_config(self, s):
+        try:
+            one_based_choice = int(s)
+            conf = self.configurations[one_based_choice - 1]
+        except ValueError:
+            print("That's not a valid number.")
+            return
+        except IndexError:
+            print("That's not a valid choice.")
+            return
+
+        f(self, conf)
+
+    return call_f_with_config
+
+class Cui(CmdExitMixin, cmd.Cmd):
+
+    def __init__(self, *args, options=None, **kwargs):
+        self.options = options
+        self.configurations = load_configurations(self.options)
+        update_all_configuration_statuses(self.configurations)
+        self.prompt = '\n(config) '
+        super().__init__(*args, **kwargs)
+
+    def do_list(self, s):
+        print("{:>3} {:^10} {}".format('ID', 'Status', 'Configuration file'))
+        print("{:-^3} {:-^10} {:-^5}".format('', '', ''))
+        for (one_based_index, conf) in enumerate(self.configurations, start=1):
+            print("{:>3} {:^10} {}".format(one_based_index, conf.status, conf.destination))
+
+    def emptyline(self):
+        pass
+
+    @config_choice
+    def do_show(self, conf):
+        print("""
+Source:        {0.source}
+- Sections:    {1}
+
+Destination:   {0.destination}
+- Sections:    {2}
+
+Current state: {0.status}""".format(
+            conf,
+            ', '.join(conf.source_sections.keys()),
+            ', '.join(conf.destination_sections.keys()),
+        ))
+
+    @config_choice
+    def do_diff(self, conf):
+        diff = generate_diff(conf)
+        pager = Popen([os.environ.get('PAGER', '/usr/bin/less')], stdin=PIPE)
+        pager.communicate(input='\n'.join(diff).encode('UTF-8'))
+
+    @config_choice
+    def do_update(self, conf):
+        with open(conf.destination, 'w') as handle:
+            handle.write('\n'.join(conf.source_lines))
+        print("OK")
+
+if __name__ == '__main__':
+
+    run_from_cli()

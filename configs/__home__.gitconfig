@@ -1,0 +1,24 @@
+[user]
+	name = quinox
+	email = quinox@qtea.nl
+[push]
+	default = simple
+
+# sync-conf begin-section=color
+[color]
+	ui = auto
+    interactive = auto
+# sync-conf end-section
+
+# sync-conf begin-section=alias
+[alias]
+    br = branch
+    ci = commit -a -v
+    co = checkout
+    df = diff --word-diff --ignore-submodules
+    g = grep -I
+    lg = log --pretty=format:'%C(yellow)%h %C(blue)%ad%C(red)%d %C(reset)%s%C(green) [%cn]' --decorate --date=short
+    st = status --ignore-submodules -sb
+    mg = merge --no-commit
+    s = status --short
+# sync-config end-section

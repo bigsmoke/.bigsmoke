@@ -54,14 +54,18 @@ def read_sections(configfile):
                 if line[1:].strip() == 'conf-sync managed':
                     commenttag = line[0]
 
+            if current_section == 'header':
+                # Headers only span 1 line
+                current_section = 'unknown-{}'.format(unknown_count)
+
             if line.startswith(commenttag) and line[1:].strip().startswith(CONFIG_NEEDLE):
                 options = [x.split('=', 1) for x in line[line.find(CONFIG_NEEDLE) + len(CONFIG_NEEDLE):].split(' ')]
                 for option in options:
                     if option[0] == 'begin-section':
                         current_section = option[1]
                     elif option[0] == 'end-section':
-                        current_section = 'unknown-{}'.format(unknown_count)
                         unknown_count += 1
+                        current_section = 'unknown-{}'.format(unknown_count)
                     elif option[0] == 'managed':
                         if lineno != 0:
                             logger.warning('Ignoring managed option after the head.')
@@ -360,22 +364,29 @@ Destination:   {0.destination}'''.format(
 class SourceConfigTest(unittest.TestCase):
     # NB: Testcases probably only work on POSIX-like systems
 
-    def test_parsing_conf_without_sections_hash(self):
+    def make_config(self, content):
         tempfile = NamedTemporaryFile()
-        tempfile.write('''# This is a sample configuration file
-value1 = "some string"
-value2 = 3'''.encode('UTF-8'))
+        tempfile.write(content.lstrip('\n').rstrip(' ').encode('UTF-8'))
         tempfile.flush()
+        return tempfile
+
+    def test_parsing_conf_without_sections_hash(self):
+        tempfile = self.make_config('''
+# This is a sample configuration file
+value1 = "some string"
+value2 = 3
+        ''')
         conf = SourceConfig(source=tempfile.name, destination=tempfile.name)
         self.assertEqual(conf.status, 'up-to-date')
         self.assertEqual(conf.source_sections.has_sections, False)
         self.assertEqual(list(conf.source_sections.keys()), ['unknown-0'])
 
     def test_parsing_conf_without_sections_semicolon(self):
-        tempfile = NamedTemporaryFile()
-        tempfile.write('''; This is a sample configuration file
+        tempfile = self.make_config('''
+; This is a sample configuration file
 value1 = "some string"
-value2 = 3'''.encode('UTF-8'))
+value2 = 3
+        ''')
         tempfile.flush()
         conf = SourceConfig(source=tempfile.name, destination=tempfile.name)
         self.assertEqual(conf.status, 'up-to-date')
@@ -383,16 +394,67 @@ value2 = 3'''.encode('UTF-8'))
         self.assertEqual(list(conf.source_sections.keys()), ['unknown-0'])
 
     def test_parsing_conf_without_sections_doublequote(self):
-        tempfile = NamedTemporaryFile()
-        tempfile.write('''" This is a sample configuration file
+        tempfile = self.make_config('''
+" This is a sample configuration file
 value1 = 'some string'
-value2 = 3'''.encode('UTF-8'))
+value2 = 3
+        ''')
         tempfile.flush()
         conf = SourceConfig(source=tempfile.name, destination=tempfile.name)
         self.assertEqual(conf.status, 'up-to-date')
         self.assertEqual(conf.source_sections.has_sections, False)
         self.assertEqual(list(conf.source_sections.keys()), ['unknown-0'])
 
+    def test_parsing_conf_with_sections_hash(self):
+        tempfile = self.make_config('''
+# conf-sync managed
+id = 2014-07-14v0
+        ''')
+        conf = SourceConfig(source=tempfile.name, destination=tempfile.name)
+        self.assertEqual(conf.status, 'up-to-date')
+        self.assertEqual(conf.source_sections.has_sections, True)
+        self.assertEqual(list(conf.source_sections.keys()), ['header', 'unknown-0'])
+
+    def test_parsing_conf_with_multipe_headers(self):
+        tempfile = self.make_config('''
+# conf-sync managed
+
+id = 2014-07-14v0
+# conf-sync managed
+
+num = 234
+        ''')
+        conf = SourceConfig(source=tempfile.name, destination=tempfile.name)
+        self.assertEqual(conf.status, 'up-to-date')
+        self.assertEqual(conf.source_sections.has_sections, True)
+        self.assertEqual(list(conf.source_sections.keys()), ['header', 'unknown-0'])
+
+
+
+    def test_parsing_conf_with_implicit_close_hash(self):
+        tempfile = self.make_config('''
+# conf-sync managed
+id = 2014-07-14v0
+
+# conf-sync begin-section=personal
+name = John Doe
+age = 39
+# conf-sync end-section
+
+# This comment is in nomans land because we closed the personal section
+
+# conf-sync begin-section=business
+# This comment is in business land
+company = ACME
+
+# conf-sync begin-section=misc
+# This comment is in misc land (note that we didn't explicitly close the previous section, that's allowed.
+status = on-holiday
+        ''')
+        conf = SourceConfig(source=tempfile.name, destination=tempfile.name)
+        self.assertEqual(conf.status, 'up-to-date')
+        self.assertEqual(conf.source_sections.has_sections, True)
+        self.assertEqual(list(conf.source_sections.keys()), ['header', 'unknown-0', 'personal', 'unknown-1', 'business', 'misc'])
 
 if __name__ == '__main__':
 

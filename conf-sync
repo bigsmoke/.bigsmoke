@@ -4,6 +4,7 @@ from difflib import unified_diff
 from io import StringIO
 from subprocess import Popen, PIPE
 from tempfile import NamedTemporaryFile
+import math
 import cmd
 import itertools
 import logging
@@ -16,23 +17,33 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_TEST_LOG_LEVEL = 30  # Warning+error
 DEFAULT_LOG_LEVEL = 20  # Warning+error+critical
-HOME_NEEDLE = '__home__'
+HOME_NEEDLE = '{0}__home__{0}'.format(os.sep)
 CONFIG_NEEDLE = 'conf-sync '
 
-
-def _color(text, color):
+def _ansi_color(text, color):
     # find some lib for this?
     prefix = ''
     suffix = '\033[0m'
     if color == 'green':
         prefix = '\033[32m'
     elif color == 'yellow':
-        prefix = '\033[33;4m'
+        prefix = '\033[33m'
     else:
         prefix = '\033[31m'
 
     return '{}{}{}'.format(prefix, text, suffix)
 
+def _ascii_color(text, color):
+    prefix = ''
+    suffix = ''
+    if color == 'yellow':
+        prefix = '['
+        suffix = ']'
+    elif color == 'red':
+        prefix = '**'
+        suffix = '**'
+
+    return '{}{}{}'.format(prefix, text, suffix)
 
 class SectionList(OrderedDict):
 
@@ -122,7 +133,7 @@ class SourceConfig:
             self.destination_sections = read_sections(self.destination)
         except FileNotFoundError:
             logger.info('Could not read {}'.format(self.destination))
-            self.destination_sections = None
+            self.destination_sections = SectionList()
         self._update_status()
 
     def __str__(self):
@@ -201,7 +212,7 @@ class SourceConfig:
 
     @classmethod
     def _type(cls, sections):
-        if self.keys():
+        if sections.keys():
             return 'sections'
         else:
             return 'whole'
@@ -244,18 +255,28 @@ class SourceConfig:
 
 def load_configurations(options):
     configurations = []
-    filenames = os.listdir(options.source_dir)
-    for filename in os.listdir(options.source_dir):
-        if filename.startswith('.') and filename.endswith('.swp'):
-            logger.debug('Skipping %s as its a temporary file made by editors.', filename)
-            continue
-        full_path = os.path.join(options.source_dir, filename)
-        logger.debug('Found: {}'.format(filename))
-        if os.path.isfile(full_path):
-            source = full_path
-            if filename.startswith(HOME_NEEDLE):
-                destination = os.path.expanduser('~/' + filename[len(HOME_NEEDLE):])
-            configurations.append(SourceConfig(source=source, destination=destination))
+
+    for root, dirs, files in os.walk(options.source_dir):
+        for filename in files:
+            if filename.startswith('.') and filename.endswith('.swp'):
+                logger.debug('Skipping %s as its a temporary file made by editors.', filename)
+                continue
+            full_path = os.path.join(root, filename)
+            logger.debug('Found: {}'.format(filename))
+            if os.path.isfile(full_path):
+                source = full_path
+
+                # Extract the full path based on the layout of the source dir
+                destination = os.path.join(root, filename)[len(options.source_dir):]
+
+                # Convert __home__ into the actual home folder of this user
+                if destination.startswith(HOME_NEEDLE):
+                    destination = os.path.expanduser('~/' + destination[len(HOME_NEEDLE):])
+
+                # Convert /__. to /.
+                destination = destination.replace(os.sep + '__.', os.sep + '.')
+
+                configurations.append(SourceConfig(source=source, destination=destination))
             
     logger.info('Found %s useable configuration files.', len(configurations))
     
@@ -272,7 +293,7 @@ def run_from_cli():
 
     default_source_directory = os.path.join(os.path.dirname(__file__), 'configs')
     if not os.path.exists(default_source_directory):
-        logger.warning("Directory %s does not exist, using example folder instead.", default_source_directory)
+        logger.warning("Directory %s does not exist, using example-configs instead.", default_source_directory)
         default_source_directory = os.path.join(os.path.dirname(__file__), 'example-configs')
 
     import argparse
@@ -281,7 +302,10 @@ def run_from_cli():
     parser.add_argument('-v', '--verbose', action='count', default=0)
     parser.add_argument('-q', '--quiet', action='count', default=0)
     parser.add_argument('-t', '--test-mode', action='store_true', help='Run all testcases.')
-    parser.add_argument('--input-sequence', help=argparse.SUPPRESS)  # comma separated
+    parser.add_argument('--color', dest='color', action='store_true', help='Always use ANSI colors in output')
+    parser.add_argument('--no-color', dest='color', action='store_false', help='Never use ANSI colors in output')
+    parser.set_defaults(color=sys.stdout.isatty())
+    parser.add_argument('--input-sequence', help=argparse.SUPPRESS)  # invisible option, comma separated
 
     args = parser.parse_args()
 
@@ -290,6 +314,7 @@ def run_from_cli():
         logger.setLevel(desired_loglevel)
         #unittest.main(argv=['', 'SourceConfigTest.test_order_preservation_with_update_with_sections'])
         unittest.main(argv=[''])
+        # unittest will terminate the program
 
     desired_loglevel = (DEFAULT_LOG_LEVEL - ((args.verbose - args.quiet) * 10))
     logger.setLevel(desired_loglevel)
@@ -304,14 +329,17 @@ def run_from_cli():
 
     if args.input_sequence:
         for command in args.input_sequence.split(','):
-            print('{0}{1} [guided input]'.format(cui.prompt, command))
+            print('{0}{1} [{2}]'.format(cui.prompt, command, cui.color('guided input', 'yellow')))
             cui.onecmd(command)
         print('<< end of guided input reached. >>')
     else:
-        print('')
+        print('''
+
+Type {0} to see a list of possible commands.
+        '''.format(cui.color('help', 'green')))
         cui.onecmd('list')
         cui.cmdloop()
-        print('')
+        print('') # Newline so the user's prompt starts on the far left.
 
 class CmdExitMixin:
 
@@ -361,9 +389,14 @@ class Cui(CmdExitMixin, cmd.Cmd):
 
     def __init__(self, *args, options=None, **kwargs):
         self.options = options
-        self.prompt = '\n(config) '
-        print('')
+        self.prompt = '\n(%s) ' % self.color('conf-sync', 'green')
         super().__init__(*args, **kwargs)
+
+    def color(self, text, color):
+        if self.options.color:
+            return _ansi_color(text, color)
+        else:
+            return _ascii_color(text, color)
 
     def do_list(self, s):
         #print('-' * 78)
@@ -373,14 +406,46 @@ class Cui(CmdExitMixin, cmd.Cmd):
         print('{:>3} {:^8} {:^17} {:>5} {:^5} {:30}'.format('ID', 'Type', 'Status', '#same', '#diff', 'Configuration file'))
         print('{:-^3} {:-^8} {:-^17} {:->5} {:->5} {:-^30}'.format(*([''] * 99)))
         for (one_based_index, conf) in enumerate(self.configurations, start=1):
-            print('{:>3} {:^8} {:^17} {:>5} {:>5} {}'.format(
+            if conf.destination_type == 'sections':
+                nr_of_same_sections = conf.nr_of_same_sections
+                nr_of_diff_sections = conf.nr_of_diff_sections
+            else:
+                nr_of_same_sections = ''
+                nr_of_diff_sections = ''
+            
+            status = conf.status
+            if status == 'up-to-date':
+                status = self.color(status, 'green')
+            elif status == 'out-of-sync':
+                status = self.color(status, 'red')
+            else:
+                status = self.color(status, 'yellow')
+
+            # We need to do our own padding since ''.format() will count
+            # invisible colour codes as well.
+            if self.options.color:
+                padding_needed = 17 - len(conf.status)
+            else:
+                padding_needed = 17 - len(status)
+
+            half_of_that = padding_needed / 2.0
+            status = '{}{}{}'.format(
+                ' ' * math.ceil(half_of_that),
+                status,
+                ' ' * math.floor(half_of_that)
+            )
+
+            print('{:>3} {:^8} {} {:>5} {:>5} {}'.format(
                 one_based_index, 
                 conf.destination_type,
-                conf.status, 
-                conf.nr_of_same_sections,
-                conf.nr_of_diff_sections,
+                status, 
+                nr_of_same_sections,
+                nr_of_diff_sections,
                 conf.destination
             ))
+
+    def help_list(self):
+        print('Print an overview of the different configuration files and their status.')
 
     def emptyline(self):
         pass
@@ -395,16 +460,22 @@ Destination:   {0.destination}'''.format(
         ))
         source_keys = list(conf.source_sections.keys())
         destination_keys = list(conf.destination_sections.keys())
-        if source_keys == destination_keys:
+        if not source_keys and not destination_keys:
+            print("This file does not use sections.")
+        elif source_keys == destination_keys:
             print('Section:       ', end='')
             for key in source_keys:
                 if conf.source_sections[key] == conf.destination_sections[key]:
-                    print(_color(key, 'green'), end=' ')
+                    print(self.color(key, 'green'), end=' ')
                 else:
-                    print(_color(key, 'yellow'), end=' ')
+                    print(self.color(key, 'yellow'), end=' ')
             print('')
         else:
             print('diff sections. {} != {}'.format(source_keys, destination_keys))
+    
+    def help_show(self):
+        print('Show more information about a specific configuration, including which sections are different.')
+
 
     @config_choice
     def do_diff(self, conf):
@@ -412,20 +483,98 @@ Destination:   {0.destination}'''.format(
         pager = Popen([os.environ.get('PAGER', '/usr/bin/less')], stdin=PIPE)
         pager.communicate(input='\n'.join(diff).encode('UTF-8'))
 
+    def help_diff(self):
+        print('''
+Show the differences between the current state of your configuration file and
+the state it will be in should you run `update` on it.
+
+The columns in the overview are as follows:
+
+  - ID: The number that you can use to refer to this configuration file.
+
+  - Type: Either 'sections' or 'whole'. The former means the configuration is
+        split up: running `update <ID>` will only replace parts of your
+        configuration file. The latter means the whole file will be replaced
+
+  - Status: Either 'new', 'out-of-sync', 'can-be-updated' or 'up-to-date'. 
+
+        An explanation per status:
+
+        - new: your configuration file is currently missing. It will be created
+          when running `update`
+        - out-of-sync: your configuration file has different sections and thus
+          cannot be partly updated.  The whole file will be replaced on running
+          `update`
+        - can-be-updated: your configuration file has the right sections and
+          the content differs.
+        - up-to-date: your configuration file is already how it should be.
+
+  - #same: In case the file uses sections: how many sections are up-to-date
+
+  - #diff: In case the file uses sections: how many sections are different and
+        will be updated by `update`.
+
+  - Configuration file: The file on your harddrive that will be altered by `update`.
+        '''.lstrip('\n').rstrip(' '))
+
     @config_choice
     def do_update(self, conf):
         conf.update()
         print('Updated {}'.format(conf.destination))
 
-    #def do_reread(self, s):
-    #    print('')
-    #    self._do_reread()
-    #    print('')
-    #    self.do_list(s)
+    def help_update(self):
+        print('''Update your configuration file. To see what will be done use the command `diff <id>`.
+
+A backup of your old configuration file will be placed in the /tmp/ folder''')
 
     def _do_reread(self):
         self.configurations = load_configurations(self.options)
 
+    def do_help(self, s):
+        print('''
+
+Welcome to conf-sync, a script to keep your configuration files in sync across
+systems!
+
+Configuration files are currently read from {source_dir}. This directory
+contains a chroot-like layout which mimics your actual filesystem. To make
+dot-files visible you can prefix the filenames with a double underscore (__),
+these will be stripped. A special folder in the root called __home__
+corresponds to your current home folder, {home_folder}.
+
+There are two types of configuration files: with or without {sections}. A file
+without sections is a regular configuration file which will be copied in whole
+when you run the {update} command.
+
+Configuration files with sections are parsed, and only those parts that have
+been marked will be kept in sync. This way you can keep a part of the file in
+sync while ignoring the rest. A good use-case is the file ~/.gitconfig: by
+marking the aliases part as a special section you can keep the aliases in sync
+while not overwriting the other settings.
+
+Please take a look at {example_source_dir}
+for some examples.
+
+Normal usage of this script goes something as follows:
+- Run {list_} to get an overview of the state of your configuration files
+- Run {diff_id} to inspect the planned changed
+- When you approve, run {update_id} to update the file.
+
+For more use the help on specific commands.
+'''.format(
+            source_dir=self.color(self.options.source_dir, 'yellow'),
+            home_folder=self.color(os.path.expanduser('~'), 'yellow'),
+            sections=self.color('sections', 'yellow'),
+            update=self.color('update', 'red'),
+            list_=self.color('list', 'red'),
+            diff_id=self.color('diff <id>', 'red'),
+            update_id=self.color('update <id>', 'red'),
+            example_source_dir=self.color(
+                os.path.join(os.path.dirname(os.path.abspath(__file__)), 'example-configs'),
+                'yellow'
+            ),
+        ))
+        super().do_help(s)
 
 class SourceConfigTest(unittest.TestCase):
 

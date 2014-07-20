@@ -354,35 +354,32 @@ class CmdExitMixin:
         return False
 
     def do_exit(self, s):
+        '''Exit the interpreter. You can also use the Ctrl-D shortcut.'''
         return True
 
-    def help_exit(self):
-        print('Exit the interpreter.')
-        print('You can also use the Ctrl-D shortcut.')
-
     do_EOF = do_exit
-    help_EOF= help_exit
 
     do_q = do_exit
-    help_q = help_exit
 
     do_quit = do_exit
-    help_quit = help_exit
 
 def config_choice(f):
     def call_f_with_config(self, s):
+        if not s.strip():
+            print('Please specify the ID of the configuration file you want to work with')
+            return
         try:
             one_based_choice = int(s)
             conf = self.configurations[one_based_choice - 1]
         except ValueError:
-            print("That's not a valid number.")
+            print('Your input, {0}, is not a valid number. Please type the ID as 1, 2, 3 etc.'.format(s))
             return
         except IndexError:
-            print("That's not a valid choice.")
+            print("You choose {0}, but that's not an existing ID.".format(s))
             return
 
         f(self, conf)
-
+    call_f_with_config.__doc__ = f.__doc__
     return call_f_with_config
 
 class Cui(CmdExitMixin, cmd.Cmd):
@@ -397,8 +394,15 @@ class Cui(CmdExitMixin, cmd.Cmd):
             return _ansi_color(text, color)
         else:
             return _ascii_color(text, color)
+    
+    def config_choice_complete(self, text, line, begidx, endidx):
+        (command, _space, argument) = line.partition(' ')
+        all_options = [str(x) for x in range(1, len(self.configurations))]
+        possible_options = [x for x in all_options if x.startswith(argument)]
+        return possible_options
 
     def do_list(self, s):
+        '''Print an overview of the different configuration files and their status.'''
         #print('-' * 78)
         self._do_reread()
         print('')
@@ -444,14 +448,15 @@ class Cui(CmdExitMixin, cmd.Cmd):
                 conf.destination
             ))
 
-    def help_list(self):
-        print('Print an overview of the different configuration files and their status.')
-
     def emptyline(self):
         pass
 
+    complete_show = config_choice_complete
+
     @config_choice
     def do_show(self, conf):
+        '''Show more information about a specific configuration, including which sections are different.'''
+
         print('''
 Current state: {0.status}
 Source:        {0.source}
@@ -473,19 +478,12 @@ Destination:   {0.destination}'''.format(
         else:
             print('diff sections. {} != {}'.format(source_keys, destination_keys))
     
-    def help_show(self):
-        print('Show more information about a specific configuration, including which sections are different.')
 
+    complete_diff = config_choice_complete
 
     @config_choice
     def do_diff(self, conf):
-        diff = conf.diff()
-        pager = Popen([os.environ.get('PAGER', '/usr/bin/less')], stdin=PIPE)
-        pager.communicate(input='\n'.join(diff).encode('UTF-8'))
-
-    def help_diff(self):
-        print('''
-Show the differences between the current state of your configuration file and
+        '''Show the differences between the current state of your configuration file and
 the state it will be in should you run `update` on it.
 
 The columns in the overview are as follows:
@@ -515,23 +513,30 @@ The columns in the overview are as follows:
         will be updated by `update`.
 
   - Configuration file: The file on your harddrive that will be altered by `update`.
-        '''.lstrip('\n').rstrip(' '))
+        '''
+        diff = conf.diff()
+        pager = Popen([os.environ.get('PAGER', '/usr/bin/less')], stdin=PIPE)
+        pager.communicate(input='\n'.join(diff).encode('UTF-8'))
+
+    complete_update = config_choice_complete
 
     @config_choice
     def do_update(self, conf):
+        '''Update the configuration file. To see what will be done use the command `diff <id>`
+
+A backup of your old configuration file will be placed in your temporary folder (usually /tmp/)'''
         conf.update()
         print('Updated {}'.format(conf.destination))
 
-    def help_update(self):
-        print('''Update your configuration file. To see what will be done use the command `diff <id>`.
-
-A backup of your old configuration file will be placed in the /tmp/ folder''')
 
     def _do_reread(self):
         self.configurations = load_configurations(self.options)
 
     def do_help(self, s):
-        print('''
+        '''Show more information about this script or specific commands.'''
+
+        if not s:
+            print('''
 
 Welcome to conf-sync, a script to keep your configuration files in sync across
 systems!
@@ -560,21 +565,22 @@ Normal usage of this script goes something as follows:
 - Run {diff_id} to inspect the planned changed
 - When you approve, run {update_id} to update the file.
 
-For more use the help on specific commands.
-'''.format(
-            source_dir=self.color(self.options.source_dir, 'yellow'),
-            home_folder=self.color(os.path.expanduser('~'), 'yellow'),
-            sections=self.color('sections', 'yellow'),
-            update=self.color('update', 'red'),
-            list_=self.color('list', 'red'),
-            diff_id=self.color('diff <id>', 'red'),
-            update_id=self.color('update <id>', 'red'),
-            example_source_dir=self.color(
-                os.path.join(os.path.dirname(os.path.abspath(__file__)), 'example-configs'),
-                'yellow'
-            ),
-        ))
-        super().do_help(s)
+For more use the help on specific commands. Tab completion is available if you
+have a Python interpreter with readline support.
+            '''.format(
+                source_dir=self.color(self.options.source_dir, 'yellow'),
+                home_folder=self.color(os.path.expanduser('~'), 'yellow'),
+                sections=self.color('sections', 'yellow'),
+                update=self.color('update', 'red'),
+                list_=self.color('list', 'red'),
+                diff_id=self.color('diff <id>', 'red'),
+                update_id=self.color('update <id>', 'red'),
+                example_source_dir=self.color(
+                    os.path.join(os.path.dirname(os.path.abspath(__file__)), 'example-configs'),
+                    'yellow'
+                ),
+            ))
+        return super().do_help(s)
 
 class SourceConfigTest(unittest.TestCase):
 

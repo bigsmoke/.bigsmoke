@@ -1,0 +1,12 @@
+VisualHostKey yes
+
+Host ytec
+    HostName office.ytec.nl
+
+Host ghost
+    HostName ghost.qtea.nl
+
+Host tikko
+    HostName 192.168.178.111
+    Compression no
+    Ciphers arcfour

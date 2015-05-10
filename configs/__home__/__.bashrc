@@ -14,4 +14,4 @@ type -t rar || [ "$(type -t unrar)" == "file" ] && alias rar=unrar
 export PYTHONWARNINGS=default
 
 export BROWSER="firefox"
-# conf-syncig end-section
+# conf-sync end-section

@@ -15,4 +15,4 @@
 ; conf-sync begin-section=alias
 [alias]
     st = status --ignore-submodules -sb
-; conf-syncig end-section
+; conf-sync end-section

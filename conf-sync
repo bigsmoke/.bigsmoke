@@ -167,7 +167,7 @@ class SourceConfig:
                     backup.write(oldfile.read())
                 logger.warning('Made backup of {} as {}'.format(self.destination, backup.name))
         with open(self.destination, 'w') as handle:
-            handle.write('\n'.join(new_config))
+            handle.write('\n'.join(new_config) + '\n')
 
     def diff(self):
         source = self.generate_config()

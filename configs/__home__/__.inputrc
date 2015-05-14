@@ -34,5 +34,3 @@ $if term=rxvt
 "\eOc": forward-word
 "\eOd": backward-word
 $endif
-
-$endif

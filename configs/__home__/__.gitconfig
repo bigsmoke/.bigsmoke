@@ -9,10 +9,10 @@
 ; conf-sync begin-section=color
 [color]
 	ui = auto
-    interactive = auto
+	interactive = auto
 ; conf-sync end-section
 
 ; conf-sync begin-section=alias
 [alias]
-    st = status --ignore-submodules -sb
+ 	st = status --ignore-submodules -sb
 ; conf-sync end-section

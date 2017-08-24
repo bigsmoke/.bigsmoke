@@ -5,7 +5,7 @@ alias i='~/bin/mkissuedir'
 alias s='synergize'
 alias t='~/bin/tmux-ticket'
 alias tmux='tmux -2'
-if [ -x '~/bin/nvim.appimage' ]; then
+if [ -x "$HOME/bin/nvim.appimage" ]; then
     alias nvim=~/bin/nvim.appimage
 fi
 alias vim='nvim'
@@ -15,7 +15,7 @@ export EDITOR=nvim
 
 alias vim=~/bin/nvim.appimage
 
-if [ -x '. ~/projects/ytec-tooling/usr/local/bin/ssh-agent-attach.sh' ]; then
+if [ -x "$HOME/projects/ytec-tooling/usr/local/bin/ssh-agent-attach.sh" ]; then
     a
 fi
 

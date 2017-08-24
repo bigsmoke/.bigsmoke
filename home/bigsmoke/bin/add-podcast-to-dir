@@ -1,0 +1,16 @@
+#!/bin/bash
+
+WWW_HOME=$HOME/www.bigsmoke.us
+
+xsltproc --stringparam new-feed-uri "$1" $WWW_HOME/podcasts-add-feed.xsl $WWW_HOME/podcasts.opml > $WWW_HOME/updated-podcasts.opml
+
+diff $WWW_HOME/{,updated-}podcasts.opml
+echo
+read -p "Do you like these changes? (y/n)"
+if [ "$REPLY" == "y" ]; then
+    mv $WWW_HOME/{updated-,}podcasts.opml
+else
+    exit 1
+fi
+
+exit 0

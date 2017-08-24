@@ -1,0 +1,75 @@
+#!/bin/bash
+
+error_msg() {
+    echo -e "\e[1;31m$1" 1>&2
+}
+
+fatal_error() {
+    msg=$1
+    [ $# -gt 0 ] || status=1
+
+    echo -e "\e[1;31m$msg" 1>&2
+
+    exit $status
+}
+
+usage_error() {
+    msg=$1
+    echo -e "\e[1;31mUsage error: \e[0;1m$msg" 1>&2
+
+    exit 2
+}
+
+user_names=[]
+
+while [ $# -gt 0 ]; do
+    case $1 in
+        --backup-passwd-file|--backup-root|--recovery-passwd-file)
+            # Voodoo, just because I can :P
+            eval "`echo $1|sed -e 's/^--//'|sed -e 's/-/_/g'`='$2'"
+            shift
+        ;;
+#        --user-names)
+#            shift
+#            # Loop until dashes are encountered at the beginning of the argument
+#            while echo $1|grep -v '^--'; do
+#                user_names+=$1
+#                shift
+#            done
+#        ;;
+#        --user-ids)
+#            while true; do
+#                 
+#            done
+#        ;;
+        --*)
+            usage_error "Invalid option '$1'"
+        ;;
+    esac
+
+    shift
+done
+
+[ -n "$backup_root" ] || usage_error "--backup-root required"
+[ -n "$recovery_root" ] || usage_error "--recovery-root required"
+
+[ -z "$backup_passwd_file" ] && backup_passwd_file="$backup_root/etc/passwd"
+[ -f "$backup_passwd_file" ] || usage_error "'$backup_passwd_file' not found"
+
+[ -z "$backup_group_file" ] && backup_group_file="$backup_root/etc/group"
+[ -f "$backup_group_file" ] || usage_error "'$backup_group_file' not found"
+
+[ -z "$recovery_passwd_file" ] && recovery_passwd_file="$recovery_root/etc/passwd"
+[ -f "$recovery_passwd_file" ] || usage_error "'$recovery_passwd_file' not found"
+
+[ -z "$recovery_group_file" ] && recovery_group_file="$recovery_root/etc/group"
+[ -f "$recovery_group_file" ] || usage_error "'$recovery_group_file' not found"
+
+cat "$backup_passwd_file" | while read passwd_record do;
+    find "$backup_root" -uid $old_uid | while read backup_subpath; do
+        
+    done
+done
+
+
+exit 0

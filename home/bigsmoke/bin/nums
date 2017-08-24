@@ -1,0 +1,27 @@
+#!/usr/bin/perl -W
+
+die "Two arguments are required." if $#ARGV < 1;
+die "Arg 1 and 2 need to be equal length." if length($ARGV[0]) != length($ARGV[1]);
+
+$first = int $ARGV[0];
+$last = int $ARGV[1];
+@nums = '';
+$length = length($ARGV[0]);
+
+$default_format = "%0".$length."d";
+
+if (defined $ARGV[2]) {
+  $extra_format = $ARGV[2];
+  $extra_format =~ s/\%/$default_format/;
+  $format = $extra_format;
+} else {
+  $format = $default_format;
+}
+
+foreach ($first .. $last) {
+  push(@nums, sprintf($format, $_));
+}
+
+print join(' ', @nums);
+
+exit 0;

@@ -1,0 +1,64 @@
+#!/bin/bash
+
+RSYNC_OPTIONS="--times --modify-window=1 --recursive --copy-links --delete --progress"
+
+SRC_MOUNTPOINT="/media/${USER}/4GB MicroSD"
+DEST_MOUNTPOINT="/media/${USER}/GrootGeval"
+BLUE_MOUNTPOINT="$HOME/mnt/N79/"
+
+DEST_DIR="$DEST_MOUNTPOINT/n79-rsync-backup"
+
+N79_MAC="00:24:03:5B:EA:75"
+
+
+src_umount_when_finished=0
+dest_umount_when_finished=0
+blue_umount_when_finished=0
+
+#
+# First, do the bluetooth sync of the phone's internal mem
+#
+
+if [ -z "`hcitool scan | grep $N79_MAC`" ]; then
+    echo "Bluetooth scan failed!"
+    exit 1
+fi
+
+if [ -z "`mount -n | grep \"$BLUE_MOUNTPOINT\"`" ]; then
+    echo "Mounting BlueTooth device on '$BLUE_MOUNTPOINT'..."
+    obexfs -b$N79_MAC -B6 "$BLUE_MOUNTPOINT" || exit 1
+    blue_umount_when_finished=1
+fi
+
+rsync $RSYNC_OPTIONS "$BLUE_MOUNTPOINT" "$DEST_DIR/N79/"
+
+if [ $blue_umount_when_finished == 1 ]; then
+    fusermount -u "$BLUE_MOUNTPOINT"
+fi
+
+#
+# Second, do the USB sync of the MicroSD card
+#
+
+if [ -z "`mount -n | grep \"$SRC_MOUNTPOINT\"`" ]; then
+    echo "Mounting '$SRC_MOUNTPOINT'..."
+    mount -v "$SRC_MOUNTPOINT" || exit 1 
+    src_umount_when_finished=1
+fi
+
+if [ -z "`mount -n | grep \"$DEST_MOUNTPOINT\"`" ]; then
+    mount -v "$DEST_MOUNTPOINT" || exit 1
+    dest_umount_when_finished=1
+fi
+
+rsync $RSYNC_OPTIONS "$SRC_MOUNTPOINT" "$DEST_DIR"
+
+if [ $src_umount_when_finished == 1 ]; then
+    umount "$SRC_MOUNTPOINT"
+fi
+
+if [ $dest_umount_when_finished == 1 ]; then
+    umount "$DEST_MOUNTPOINT"
+fi
+
+exit 0

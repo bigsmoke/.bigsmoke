@@ -1,0 +1,24 @@
+#!/bin/bash
+
+RSYNC_OPTIONS="--times --modify-window=1 --recursive --copy-links --delete --progress"
+MOUNTPOINT="/media/bigsmoke/4GB MicroSD"
+
+umount_when_finished=0
+if [ -z "`mount -n | grep '$MOUNTPOINT'`" ]; then
+    mount -v "$MOUNTPOINT"
+    umount_when_finished=1
+fi
+
+#rsync $RSYNC_OPTIONS /home/media/music/n79/ "$MOUNTPOINT/Music/"
+#rsync $RSYNC_OPTIONS /home/media/audiobooks/n79/ "$MOUNTPOINT/audiobooks/"
+#rsync $RSYNC_OPTIONS /home/media/binaural/n79/ "$MOUNTPOINT/binaural/"
+
+mv -i "$MOUNTPOINT"/Images/Camera/* /home/bigsmoke/Pictures/N79
+
+sync
+
+if [ $umount_when_finished == 1 ]; then
+    umount "$MOUNTPOINT"
+fi
+
+exit 0

@@ -1,0 +1,10 @@
+#!/bin/bash
+
+where=-south
+
+if [ -n "$1" ]; then
+    where=$1
+fi
+
+ssh -X opschoot x2x $where -to :0 &
+disown $!

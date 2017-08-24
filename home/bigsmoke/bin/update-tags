@@ -1,0 +1,74 @@
+#!/bin/bash -T
+
+usage() {
+    echo "Updates Python tags for regular Fabric projects and outputs the path of the tag file."
+    echo "Usage: [ --all ]"
+    echo "  --all: Also load tags from the virtual"
+}
+
+run-ctags() {
+    cd "$1"
+    tagfile="$projectroot/._tags"
+    if [ -z "$2" ]
+    then
+        # Only the website folder
+        ctags -R --fields=+l --languages=python --python-kinds=-iv -f "$tagfile" ./website/
+    else
+        # The entire folder
+        ctags -R --fields=+l --languages=python --python-kinds=-iv -f "$tagfile" ./
+    fi
+
+    echo "$tagfile"
+}
+
+
+
+all=""
+while [ $# -gt 0 ]
+do
+    if [ "$1" == "-h" ] || [ "$1" == "--help" ]
+    then
+        usage
+        exit 0
+    elif [ "$1" == "--all" ]
+    then
+        all="yes"
+        shift
+    else
+        echo "Unknown option '$1'"
+        usage
+        exit 1
+    fi
+done
+
+here="$PWD"
+projectroot="$PWD"
+
+
+# Case 1a: Inside website itself
+projectroot="${projectroot%%/website}"
+# Case 1b: Inside a subdir of website
+projectroot="${projectroot%%/website/*}"
+
+if [ "$projectroot" != "$here" ]
+then
+    run-ctags "$projectroot" "$all"
+    exit 0
+fi
+
+# Case 2: Inside the virtual
+projectroot="${projectroot%%/virtual/*}"
+
+if [ "$projectroot" != "$here" ]
+then
+    run-ctags "$projectroot" "yes to all"
+    exit 0
+fi
+
+# Case 3: Inside the main folder
+if [ -e "$projectroot/virtual" -a -e "$projectroot/website" ]
+then
+    run-ctags "$projectroot" "yes to all"
+fi
+
+exit 1

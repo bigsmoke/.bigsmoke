@@ -1,0 +1,30 @@
+#!/bin/bash
+XPROP=('xprop' '-root' '-f' 'LTSP_COMMAND' '8s' '-set' 'LTSP_COMMAND')
+command="$1"
+
+# Mode 1
+if [ $# -eq 1 ]; then
+    xprop -root -f LTSP_COMMAND 8s -set LTSP_COMMAND "'$command'"
+    exit 0
+fi
+
+# Mode 2
+if [ $# -ne 2 ]; then
+    echo "Usage: < program > < file argument >"
+    exit 2
+fi
+
+parameter="$2"
+first="${parameter:0:1}"
+if [ "$first" == "/" ] || [ "$first" == "~" ]; then
+    arg="$parameter"
+else
+    full="`pwd`/$parameter"
+    if [ -a "$full" ]; then
+        arg="$full"
+    else
+        arg="$parameter"
+    fi
+fi
+echo "Launching '$command' with argument '$arg'"
+xprop -root -f LTSP_COMMAND 8s -set LTSP_COMMAND "'$command' '$arg'"

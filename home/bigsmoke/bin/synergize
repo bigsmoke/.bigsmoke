@@ -1,0 +1,15 @@
+#!/bin/bash
+X_FILE="$HOME/.current_ltsp_x"
+BIN="$HOME/bin/synergys"
+ADDR=":24801"
+
+PID_TO_KILL=`ps -u $USER | grep synergys | awk -F ' ' '{print $1}'`
+if [ -n "$PID_TO_KILL" ]; then
+    kill -9 $PID_TO_KILL
+fi
+
+if [ -f "$X_FILE" -a "$HOSTNAME" = 'duivenkracht' ]; then
+    DISPLAY="$(cat "$X_FILE")" "$BIN" --address "$ADDR" "$@"
+else
+    exec "$BIN" --address "$ADDR" "$@"
+fi

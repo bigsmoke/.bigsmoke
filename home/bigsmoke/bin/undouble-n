@@ -1,0 +1,7 @@
+#!/usr/bin/python
+
+
+import sys
+s = sys.stdin.read()
+s = s.replace("\n\n", "\n")
+sys.stdout.write(s)

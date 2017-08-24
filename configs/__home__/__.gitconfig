@@ -1,0 +1,18 @@
+; conf-sync managed
+
+[user]
+	name = quinox
+	email = quinox@qtea.nl
+[push]
+	default = simple
+
+; conf-sync begin-section=color
+[color]
+	ui = auto
+	interactive = auto
+; conf-sync end-section
+
+; conf-sync begin-section=alias
+[alias]
+	st = status --ignore-submodules --short --branch
+; conf-sync end-section

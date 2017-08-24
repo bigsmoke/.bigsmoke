@@ -1,0 +1,836 @@
+#!/usr/bin/python3
+from collections import OrderedDict
+from difflib import unified_diff
+from io import StringIO
+from subprocess import Popen, PIPE
+from tempfile import NamedTemporaryFile
+import math
+import cmd
+import itertools
+import logging
+import os
+import sys
+import unittest
+
+
+logger = logging.getLogger(__name__)
+
+DEFAULT_TEST_LOG_LEVEL = 30  # Warning+error
+DEFAULT_LOG_LEVEL = 20  # Warning+error+critical
+HOME_NEEDLE = '{0}__home__{0}'.format(os.sep)
+CONFIG_NEEDLE = 'conf-sync '
+
+def _ansi_color(text, color):
+    # find some lib for this?
+    prefix = ''
+    suffix = '\033[0m'
+    if color == 'green':
+        prefix = '\033[32m'
+    elif color == 'yellow':
+        prefix = '\033[33m'
+    else:
+        prefix = '\033[31m'
+
+    return '{}{}{}'.format(prefix, text, suffix)
+
+def _ascii_color(text, color):
+    prefix = ''
+    suffix = ''
+    if color == 'yellow':
+        prefix = '['
+        suffix = ']'
+    elif color == 'red':
+        prefix = '**'
+        suffix = '**'
+
+    return '{}{}{}'.format(prefix, text, suffix)
+
+class SectionList(OrderedDict):
+
+    def all_keys(self):
+        return [x for x in super().keys()]
+
+    def keys(self):
+        '''Only the important ones.'''
+        keys = [x for x in self.all_keys() if not x.startswith('unknown-')]
+        return keys
+
+def read_sections(configfile):
+    sections = SectionList()
+
+    unknown_count = 0
+    current_section = None
+    commenttag = '?'
+   
+    section_counts = {}
+    def get_unique_section_name(section, sections=sections):
+        '''TODO'''
+        if section in section_counts:
+            section_counts[section] += 1
+            return '{}-{}'.format(section, section_counts[section])
+
+        section_counts[section] = 1
+        return section
+
+    with open(configfile) as handle:
+        for (lineno, line) in enumerate(line.rstrip('\n') for line in handle):
+
+            if lineno == 0:
+                if line[1:].strip() == 'conf-sync managed':
+                    commenttag = line[0]
+
+            if line.startswith(commenttag) and line[1:].strip().startswith(CONFIG_NEEDLE):
+                options = [x.split('=', 1) for x in line[line.find(CONFIG_NEEDLE) + len(CONFIG_NEEDLE):].split(' ')]
+                for option in options:
+                    if option[0] == 'begin-section':
+                        current_section = get_unique_section_name(option[1])
+                    elif option[0] == 'end-section':
+                        current_section = None
+                    elif option[0] == 'managed':
+                        if lineno != 0:
+                            logger.warning('Ignoring managed option after the head.')
+                        else:
+                            current_section = 'header'
+                    else:
+                        raise Exception('Unknown config option {} while processing {}'.format(option, line))
+
+            # Pre-write section test
+            if current_section is None:
+                # We don't know where we are!
+                current_section = 'unknown-{}'.format(unknown_count)
+                unknown_count += 1
+
+            try:
+                section = sections[current_section]
+            except KeyError:
+                section = sections[current_section] = []
+
+            section.append(line)
+
+            # You can only have 1 header-line
+            if current_section == 'header':
+                current_section = None
+
+    return sections
+
+
+class SourceConfig:
+    '''
+
+    Statuses:
+    - new: destination file is missing
+    - out-of-sync: source file has sections which the destination file doesn't have
+    - can-be-updated: destination/source both have/don't have sections but differ in content
+    - up-to-date: destination/source are the same
+    '''
+
+    def __init__(self, source=None, destination=None):
+        self.source = source
+        self.destination = destination
+        self.status = 'unknown'
+        self.source_sections = read_sections(self.source)
+        try:
+            self.destination_sections = read_sections(self.destination)
+        except FileNotFoundError:
+            logger.info('Could not read {}'.format(self.destination))
+            self.destination_sections = SectionList()
+        self._update_status()
+
+    def __str__(self):
+        return 'SourceConfig({} -> {})'.format(self.source, self.destination)
+
+    def _update_status(self):
+        if not os.path.exists(self.destination):
+            self.status = 'new'
+            return
+
+        if not self.have_same_sections:
+            self.status = 'out-of-sync'
+            return
+
+        logger.debug('Generating diff between %s and %s', self.source, self.destination)
+        diff = self.diff()
+
+        if next(diff, None) is not None:
+            logger.info('Configuration {} can be updated.'.format(self.destination))
+            self.status = 'can-be-updated'
+            return
+
+        logger.info('Configuration file {} is up-to-date'.format(self.destination))
+        self.status = 'up-to-date'
+
+    def update(self):
+        new_config = self.generate_config()
+        if os.path.exists(self.destination):
+            with NamedTemporaryFile('w', prefix=self.destination.replace(os.sep, '_'), delete=False) as backup:
+                with open(self.destination) as oldfile:
+                    backup.write(oldfile.read())
+                logger.warning('Made backup of {} as {}'.format(self.destination, backup.name))
+        with open(self.destination, 'w') as handle:
+            handle.write('\n'.join(new_config) + '\n')
+
+    def diff(self):
+        source = self.generate_config()
+
+        diff = unified_diff(
+            self.destination_lines,
+            source,
+            'repo' + self.destination,
+            'fs' + self.destination,
+            lineterm='',
+        )
+        return diff
+
+    def generate_config(self):
+        prerequisite_for_merging = [
+            self.source_sections.keys(),
+            self.destination_sections.keys(),
+            sorted(self.source_sections.keys()) == sorted(self.destination_sections.keys()),
+        ]
+        #import pdb; pdb.set_trace()
+        if not all(prerequisite_for_merging):
+            # We can't merge.
+            return self.source_lines
+
+        # Same sections in both files, hooray.
+        # Strategy: Loop through the destination file in order, update parts that need updating. Profit.
+        lines = []
+        for section in self.destination_sections.all_keys():
+            if section.startswith('unknown-'):
+                lines += self.destination_sections[section]
+            else:
+                lines += self.source_sections[section]
+        return lines
+
+    @property
+    def source_type(self):
+        return self._type(self.source_sections)
+
+    @property
+    def destination_type(self):
+        return self._type(self.destination_sections)
+
+    @classmethod
+    def _type(cls, sections):
+        if sections.keys():
+            return 'sections'
+        else:
+            return 'whole'
+
+    def needs_updating(self):
+        return self.status in ('new', 'outdated', 'unmanaged')
+
+    @property
+    def source_lines(self):
+        return list(itertools.chain(*self.source_sections.values()))
+    
+    @property
+    def destination_lines(self):
+        return list(itertools.chain(*self.destination_sections.values()))
+
+    @property
+    def nr_of_diff_sections(self):
+        return self._nr_of_sections['diff']
+
+    @property
+    def nr_of_same_sections(self):
+        return self._nr_of_sections['same']
+
+    @property
+    def _nr_of_sections(self):
+        same_sections = 0
+        all_keys = set(self.source_sections.keys()) | set(self.destination_sections.keys())
+        for key in all_keys:
+            try:
+                if (self.source_sections[key] == self.destination_sections[key]):
+                    same_sections += 1
+            except KeyError:
+                pass
+        return {'same': same_sections, 'diff': len(all_keys) - same_sections}
+
+    @property
+    def have_same_sections(self):
+        return (len(set(self.source_sections.keys()) ^ set(self.destination_sections.keys())) == 0)
+
+
+def load_configurations(options):
+    configurations = []
+
+    for root, dirs, files in os.walk(options.source_dir):
+        for filename in files:
+            if filename.startswith('.') and filename.endswith('.swp'):
+                logger.debug('Skipping %s as its a temporary file made by editors.', filename)
+                continue
+            full_path = os.path.join(root, filename)
+            logger.debug('Found: {}'.format(filename))
+            if os.path.isfile(full_path):
+                source = full_path
+
+                # Extract the full path based on the layout of the source dir
+                destination = os.path.join(root, filename)[len(options.source_dir):]
+
+                # Convert __home__ into the actual home folder of this user
+                if destination.startswith(HOME_NEEDLE):
+                    destination = os.path.expanduser('~/' + destination[len(HOME_NEEDLE):])
+
+                # Convert /__. to /.
+                destination = destination.replace(os.sep + '__.', os.sep + '.')
+
+                configurations.append(SourceConfig(source=source, destination=destination))
+            
+    logger.info('Found %s useable configuration files.', len(configurations))
+    
+    return configurations
+
+
+def run_from_cli():
+    
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.DEBUG)
+    formatter = logging.Formatter('%(asctime)s %(message)s', datefmt='%H:%M:%S')
+    ch.setFormatter(formatter)
+    logger.addHandler(ch)
+
+    default_source_directory = os.path.join(os.path.dirname(__file__), 'configs')
+    if not os.path.exists(default_source_directory):
+        logger.warning("Directory %s does not exist, using example-configs instead.", default_source_directory)
+        default_source_directory = os.path.join(os.path.dirname(__file__), 'example-configs')
+
+    import argparse
+    parser = argparse.ArgumentParser(description='Manage dot files.')
+    parser.add_argument('-s', '--source-dir', help='Directory with configuration files. Default: %(default)s', default=default_source_directory)
+    parser.add_argument('-v', '--verbose', action='count', default=0)
+    parser.add_argument('-q', '--quiet', action='count', default=0)
+    parser.add_argument('-t', '--test-mode', action='store_true', help='Run all testcases.')
+    parser.add_argument('--color', dest='color', action='store_true', help='Always use ANSI colors in output')
+    parser.add_argument('--no-color', dest='color', action='store_false', help='Never use ANSI colors in output')
+    parser.set_defaults(color=sys.stdout.isatty())
+    parser.add_argument('--input-sequence', help=argparse.SUPPRESS)  # invisible option, comma separated
+
+    args = parser.parse_args()
+
+    if args.test_mode:
+        desired_loglevel = (DEFAULT_TEST_LOG_LEVEL - ((args.verbose - args.quiet) * 10))
+        logger.setLevel(desired_loglevel)
+        #unittest.main(argv=['', 'SourceConfigTest.test_order_preservation_with_update_with_sections'])
+        unittest.main(argv=[''])
+        # unittest will terminate the program
+
+    desired_loglevel = (DEFAULT_LOG_LEVEL - ((args.verbose - args.quiet) * 10))
+    logger.setLevel(desired_loglevel)
+
+    #logger.debug('This is a debug message.')
+    #logger.info('This is an info message.')
+    #logger.warning('This is a warning message.')
+    #logger.error('This is an error message.')
+    #logger.critical('This is a critical message.')
+
+    cui = Cui(options=args)
+
+    if args.input_sequence:
+        for command in args.input_sequence.split(','):
+            print('{0}{1} [{2}]'.format(cui.prompt, command, cui.color('guided input', 'yellow')))
+            cui.onecmd(command)
+        print('<< end of guided input reached. >>')
+    else:
+        print('''
+
+Type {0} to see a list of possible commands.
+        '''.format(cui.color('help', 'green')))
+        cui.onecmd('list')
+        cui.cmdloop()
+        print('') # Newline so the user's prompt starts on the far left.
+
+class CmdExitMixin:
+
+    def can_exit(self):
+        return True
+
+    def onecmd(self, line):
+        r = super().onecmd(line)
+        if r and (self.can_exit() or
+           raw_input('exit anyway ? (yes/no):')=='yes'):
+             return True
+        return False
+
+    def do_exit(self, s):
+        '''Exit the interpreter. You can also use the Ctrl-D shortcut.'''
+        return True
+
+    do_EOF = do_exit
+
+    do_q = do_exit
+
+    do_quit = do_exit
+
+def config_choice(f):
+    def call_f_with_config(self, s):
+        if not s.strip():
+            print('Please specify the ID of the configuration file you want to work with')
+            return
+        try:
+            one_based_choice = int(s)
+            conf = self.configurations[one_based_choice - 1]
+        except ValueError:
+            print('Your input, {0}, is not a valid number. Please type the ID as 1, 2, 3 etc.'.format(s))
+            return
+        except IndexError:
+            print("You choose {0}, but that's not an existing ID.".format(s))
+            return
+
+        f(self, conf)
+    call_f_with_config.__doc__ = f.__doc__
+    return call_f_with_config
+
+class Cui(CmdExitMixin, cmd.Cmd):
+
+    def __init__(self, *args, options=None, **kwargs):
+        self.options = options
+        self.prompt = '\n(%s) ' % self.color('conf-sync', 'green')
+        super().__init__(*args, **kwargs)
+
+    def color(self, text, color):
+        if self.options.color:
+            return _ansi_color(text, color)
+        else:
+            return _ascii_color(text, color)
+    
+    def config_choice_complete(self, text, line, begidx, endidx):
+        (command, _space, argument) = line.partition(' ')
+        all_options = [str(x) for x in range(1, len(self.configurations))]
+        possible_options = [x for x in all_options if x.startswith(argument)]
+        return possible_options
+
+    def do_list(self, s):
+        '''Print an overview of the different configuration files and their status.'''
+        #print('-' * 78)
+        self._do_reread()
+        print('')
+
+        print('{:>3} {:^8} {:^17} {:>5} {:^5} {:30}'.format('ID', 'Type', 'Status', '#same', '#diff', 'Configuration file'))
+        print('{:-^3} {:-^8} {:-^17} {:->5} {:->5} {:-^30}'.format(*([''] * 99)))
+        for (one_based_index, conf) in enumerate(self.configurations, start=1):
+            if conf.destination_type == 'sections':
+                nr_of_same_sections = conf.nr_of_same_sections
+                nr_of_diff_sections = conf.nr_of_diff_sections
+            else:
+                nr_of_same_sections = ''
+                nr_of_diff_sections = ''
+            
+            status = conf.status
+            if status == 'up-to-date':
+                status = self.color(status, 'green')
+            elif status == 'out-of-sync':
+                status = self.color(status, 'red')
+            else:
+                status = self.color(status, 'yellow')
+
+            # We need to do our own padding since ''.format() will count
+            # invisible colour codes as well.
+            if self.options.color:
+                padding_needed = 17 - len(conf.status)
+            else:
+                padding_needed = 17 - len(status)
+
+            half_of_that = padding_needed / 2.0
+            status = '{}{}{}'.format(
+                ' ' * math.ceil(half_of_that),
+                status,
+                ' ' * math.floor(half_of_that)
+            )
+
+            print('{:>3} {:^8} {} {:>5} {:>5} {}'.format(
+                one_based_index, 
+                conf.destination_type,
+                status, 
+                nr_of_same_sections,
+                nr_of_diff_sections,
+                conf.destination
+            ))
+
+    def emptyline(self):
+        pass
+
+    complete_show = config_choice_complete
+
+    @config_choice
+    def do_show(self, conf):
+        '''Show more information about a specific configuration, including which sections are different.'''
+
+        print('''
+Current state: {0.status}
+Source:        {0.source}
+Destination:   {0.destination}'''.format(
+            conf,
+        ))
+        source_keys = list(conf.source_sections.keys())
+        destination_keys = list(conf.destination_sections.keys())
+        if not source_keys and not destination_keys:
+            print("This file does not use sections.")
+        elif source_keys == destination_keys:
+            print('Section:       ', end='')
+            for key in source_keys:
+                if conf.source_sections[key] == conf.destination_sections[key]:
+                    print(self.color(key, 'green'), end=' ')
+                else:
+                    print(self.color(key, 'yellow'), end=' ')
+            print('')
+        else:
+            print('diff sections. {} != {}'.format(source_keys, destination_keys))
+    
+
+    complete_diff = config_choice_complete
+
+    @config_choice
+    def do_diff(self, conf):
+        '''Show the differences between the current state of your configuration file and
+the state it will be in should you run `update` on it.
+
+The columns in the overview are as follows:
+
+  - ID: The number that you can use to refer to this configuration file.
+
+  - Type: Either 'sections' or 'whole'. The former means the configuration is
+        split up: running `update <ID>` will only replace parts of your
+        configuration file. The latter means the whole file will be replaced
+
+  - Status: Either 'new', 'out-of-sync', 'can-be-updated' or 'up-to-date'. 
+
+        An explanation per status:
+
+        - new: your configuration file is currently missing. It will be created
+          when running `update`
+        - out-of-sync: your configuration file has different sections and thus
+          cannot be partly updated.  The whole file will be replaced on running
+          `update`
+        - can-be-updated: your configuration file has the right sections and
+          the content differs.
+        - up-to-date: your configuration file is already how it should be.
+
+  - #same: In case the file uses sections: how many sections are up-to-date
+
+  - #diff: In case the file uses sections: how many sections are different and
+        will be updated by `update`.
+
+  - Configuration file: The file on your harddrive that will be altered by `update`.
+        '''
+        diff = conf.diff()
+        pager = Popen([os.environ.get('PAGER', '/usr/bin/less')], stdin=PIPE)
+        pager.communicate(input='\n'.join(diff).encode('UTF-8'))
+
+    complete_update = config_choice_complete
+
+    @config_choice
+    def do_update(self, conf):
+        '''Update the configuration file. To see what will be done use the command `diff <id>`
+
+A backup of your old configuration file will be placed in your temporary folder (usually /tmp/)'''
+        conf.update()
+        print('Updated {}'.format(conf.destination))
+
+
+    def _do_reread(self):
+        self.configurations = load_configurations(self.options)
+
+    def do_help(self, s):
+        '''Show more information about this script or specific commands.'''
+
+        if not s:
+            print('''
+
+Welcome to conf-sync, a script to keep your configuration files in sync across
+systems!
+
+Configuration files are currently read from {source_dir}. This directory
+contains a chroot-like layout which mimics your actual filesystem. To make
+dot-files visible you can prefix the filenames with a double underscore (__),
+these will be stripped. A special folder in the root called __home__
+corresponds to your current home folder, {home_folder}.
+
+There are two types of configuration files: with or without {sections}. A file
+without sections is a regular configuration file which will be copied in whole
+when you run the {update} command.
+
+Configuration files with sections are parsed, and only those parts that have
+been marked will be kept in sync. This way you can keep a part of the file in
+sync while ignoring the rest. A good use-case is the file ~/.gitconfig: by
+marking the aliases part as a special section you can keep the aliases in sync
+while not overwriting the other settings.
+
+Please take a look at {example_source_dir}
+for some examples.
+
+Normal usage of this script goes something as follows:
+- Run {list_} to get an overview of the state of your configuration files
+- Run {diff_id} to inspect the planned changed
+- When you approve, run {update_id} to update the file.
+
+For more use the help on specific commands. Tab completion is available if you
+have a Python interpreter with readline support.
+            '''.format(
+                source_dir=self.color(self.options.source_dir, 'yellow'),
+                home_folder=self.color(os.path.expanduser('~'), 'yellow'),
+                sections=self.color('sections', 'yellow'),
+                update=self.color('update', 'red'),
+                list_=self.color('list', 'red'),
+                diff_id=self.color('diff <id>', 'red'),
+                update_id=self.color('update <id>', 'red'),
+                example_source_dir=self.color(
+                    os.path.join(os.path.dirname(os.path.abspath(__file__)), 'example-configs'),
+                    'yellow'
+                ),
+            ))
+        return super().do_help(s)
+
+class SourceConfigTest(unittest.TestCase):
+
+    def make_config(self, content):
+        # NB: Testcases probably won't work on something like Windows where you cannot open the same file multiple times for writing.
+        tempfile = NamedTemporaryFile()
+        tempfile.write(content.lstrip('\n').rstrip(' ').encode('UTF-8'))
+        tempfile.flush()
+        return tempfile
+
+    @classmethod
+    def get_testcase_path(cls, filename):
+        return os.path.join(os.path.dirname(__file__), 'testcases', filename)
+
+    def test_empty_diff(self):
+        tempfile = self.make_config('''
+" This is a sample configuration file
+value1 = 'some string'
+value2 = 3
+        ''')
+        conf = SourceConfig(source=tempfile.name, destination=tempfile.name)
+        self.assertEqual(list(conf.diff()), [])
+
+    def test_order_preservation_with_update_with_sections(self):
+        source = self.get_testcase_path('testcase_order_preserving_in_sections_source.conf')
+        destination = self.get_testcase_path('testcase_order_preserving_in_sections_destination.conf')
+        conf = SourceConfig(source=source, destination=destination)
+        self.assertEqual(conf.source_sections.keys(), ['header', 'specific-order', 'some-non-specific-order', 'specific-order-2', 'another-non-specific-order'])
+        self.assertEqual(conf.destination_sections.keys(), ['header', 'specific-order', 'another-non-specific-order', 'specific-order-2', 'some-non-specific-order'])
+        actual_outcome = conf.generate_config()
+        with open(self.get_testcase_path('testcase_order_preserving_in_sections_outcome.conf')) as handle:
+            expected_outcome = [x.rstrip('\n') for x in handle.readlines()]
+        self.assertEqual(expected_outcome, actual_outcome)
+
+
+    def test_update_with_sections(self):
+        inputfile = self.make_config('''
+# conf-sync managed
+# conf-sync begin-section=should-stay-in-sync
+important_setting = "improved string"
+# conf-sync end-section
+unimportant_value = 42
+        ''')
+        outputfile = self.make_config('''
+# conf-sync managed
+# conf-sync begin-section=should-stay-in-sync
+important_setting = "outdated string"
+# conf-sync end-section
+unimportant_value = 1337
+''')
+        conf = SourceConfig(source=inputfile.name, destination=outputfile.name)
+        self.assertEqual(conf.source_sections.keys(), ['header', 'should-stay-in-sync'])
+        self.assertEqual(conf.source_sections.all_keys(), ['header', 'should-stay-in-sync', 'unknown-0'])
+        self.assertEqual(conf.destination_sections.keys(), ['header', 'should-stay-in-sync'])
+        self.assertEqual(conf.destination_sections.all_keys(), ['header', 'should-stay-in-sync', 'unknown-0'])
+
+        diff = list(conf.diff())
+        self.assertEqual(diff[0][:9], '--- repo/')
+        self.assertEqual(diff[1][:7], '+++ fs/')
+        self.assertEqual(diff[2:], [
+            '@@ -1,5 +1,5 @@', 
+            ' # conf-sync managed',
+            ' # conf-sync begin-section=should-stay-in-sync',
+            '-important_setting = "outdated string"',
+            '+important_setting = "improved string"',
+            ' # conf-sync end-section',
+            ' unimportant_value = 1337',
+        ])
+
+
+    def test_update_without_sections(self):
+        inputfile = self.make_config('''
+# This is a sample configuration file
+value1 = "improved string"
+value2 = 3
+        ''')
+        outputfile = self.make_config('''
+# This is a sample configuration file
+value1 = "outdated string"
+value2 = 3
+''')
+        conf = SourceConfig(source=inputfile.name, destination=outputfile.name)
+        diff = list(conf.diff())
+        self.assertEqual(diff[0][:9], '--- repo/')
+        self.assertEqual(diff[1][:7], '+++ fs/')
+        self.assertEqual(diff[2:], [
+            '@@ -1,3 +1,3 @@', 
+            ' # This is a sample configuration file',
+            '-value1 = "outdated string"',
+            '+value1 = "improved string"',
+            ' value2 = 3'
+        ])
+
+
+    def test_parsing_conf_without_sections_hash(self):
+        tempfile = self.make_config('''
+# This is a sample configuration file
+value1 = "some string"
+value2 = 3
+        ''')
+        conf = SourceConfig(source=tempfile.name, destination=tempfile.name)
+        self.assertEqual(conf.status, 'up-to-date')
+        self.assertEqual(conf.source_sections.all_keys(), ['unknown-0'])
+        self.assertEqual(conf.source_sections.keys(), [])
+
+
+    def test_parsing_conf_without_sections_semicolon(self):
+        tempfile = self.make_config('''
+; This is a sample configuration file
+value1 = "some string"
+value2 = 3
+        ''')
+        tempfile.flush()
+        conf = SourceConfig(source=tempfile.name, destination=tempfile.name)
+        self.assertEqual(conf.status, 'up-to-date')
+        self.assertEqual(conf.source_sections.keys(), [])
+        self.assertEqual(conf.source_sections.all_keys(), ['unknown-0'])
+
+
+    def test_parsing_conf_without_sections_doublequote(self):
+        tempfile = self.make_config('''
+" This is a sample configuration file
+value1 = 'some string'
+value2 = 3
+        ''')
+        conf = SourceConfig(source=tempfile.name, destination=tempfile.name)
+        self.assertEqual(conf.status, 'up-to-date')
+        self.assertEqual(conf.source_sections.keys(), [])
+        self.assertEqual(conf.source_sections.all_keys(), ['unknown-0'])
+
+    def test_parsing_conf_with_sections_hash(self):
+        tempfile = self.make_config('''
+# conf-sync managed
+id = 2014-07-14v0
+"foo" = "bar"
+'bar' = 'qux'
+# conf-sync begin-section=dessert
+ingredients = ['ice', 'fruit', 'syrup']
+        ''')
+        conf = SourceConfig(source=tempfile.name, destination=tempfile.name)
+        self.assertEqual(conf.status, 'up-to-date')
+        self.assertEqual(conf.source_sections.keys(), ['header', 'dessert'])
+        self.assertEqual(conf.source_sections.all_keys(), ['header', 'unknown-0', 'dessert'])
+        self.assertEqual(conf.source_sections['header'], ['# conf-sync managed'])
+        self.assertEqual(conf.source_sections['unknown-0'], [
+            'id = 2014-07-14v0',
+            '"foo" = "bar"',
+            "'bar' = 'qux'",
+        ])
+        self.assertEqual(conf.source_sections['dessert'], [
+            '# conf-sync begin-section=dessert',
+            "ingredients = ['ice', 'fruit', 'syrup']",
+        ])
+
+
+    def test_parsing_conf_with_sections_semicolon(self):
+        tempfile = self.make_config('''
+; conf-sync managed
+id = 2014-07-14v0
+
+; The line below should not actually start a section since the line doesn't start with a semicolon
+# conf-sync begin-section=pizza
+"foo" = "bar"
+'bar' = 'qux'
+
+; conf-sync begin-section=dessert
+ingredients = ['ice', 'fruit', 'syrup']
+        ''')
+        conf = SourceConfig(source=tempfile.name, destination=tempfile.name)
+        self.assertEqual(conf.status, 'up-to-date')
+        self.assertEqual(conf.source_sections.keys(), ['header', 'dessert'])
+        self.assertEqual(conf.source_sections.all_keys(), ['header', 'unknown-0', 'dessert'])
+        self.assertEqual(conf.source_sections['header'], ['; conf-sync managed'])
+        self.assertEqual(conf.source_sections['unknown-0'], [
+            'id = 2014-07-14v0',
+            '',
+            "; The line below should not actually start a section since the line doesn't start with a semicolon",
+            '# conf-sync begin-section=pizza',
+            '"foo" = "bar"',
+            "'bar' = 'qux'",
+            '',
+        ])
+        self.assertEqual(conf.source_sections['dessert'], [
+            '; conf-sync begin-section=dessert',
+            "ingredients = ['ice', 'fruit', 'syrup']",
+        ])
+
+
+
+
+    def test_parsing_conf_with_multipe_headers(self):
+        tempfile = self.make_config('''
+# conf-sync managed
+
+id = 2014-07-14v0
+# conf-sync managed
+
+num = 234
+        ''')
+        conf = SourceConfig(source=tempfile.name, destination=tempfile.name)
+        self.assertEqual(conf.status, 'up-to-date')
+        self.assertEqual(conf.source_sections.keys(), ['header'])
+        self.assertEqual(conf.source_sections.all_keys(), ['header', 'unknown-0'])
+        self.assertEqual(conf.source_sections['header'], ['# conf-sync managed'])
+        self.assertEqual(conf.source_sections['unknown-0'], [
+            '', 
+            'id = 2014-07-14v0', 
+            '# conf-sync managed', 
+            '',
+            'num = 234'
+        ])
+
+
+    def test_parsing_conf_with_implicit_close_hash(self):
+        tempfile = self.make_config('''
+# conf-sync managed
+id = 2014-07-14v0
+
+# conf-sync begin-section=personal
+name = John Doe
+age = 39
+# conf-sync end-section
+
+# This comment is in no mans land because we closed the personal section
+
+# conf-sync begin-section=business
+# This comment is in business land
+company = ACME
+
+# conf-sync begin-section=misc
+# This comment is in misc land (note that we didn't explicitly close the previous section, that's allowed.
+status = on-holiday
+        ''')
+        conf = SourceConfig(source=tempfile.name, destination=tempfile.name)
+        self.assertEqual(conf.status, 'up-to-date')
+        self.assertEqual(conf.source_sections.keys(), ['header', 'personal', 'business', 'misc'])
+        self.assertEqual(conf.source_sections.all_keys(), ['header', 'unknown-0', 'personal', 'unknown-1', 'business', 'misc'])
+        self.assertEqual(conf.source_sections['business'], [
+            '# conf-sync begin-section=business', 
+            '# This comment is in business land', 
+            'company = ACME', 
+            ''
+        ])
+        self.assertEqual(conf.source_sections['misc'], [
+            '# conf-sync begin-section=misc', 
+            "# This comment is in misc land (note that we didn't explicitly close the previous section, that's allowed.", 
+            'status = on-holiday'
+        ])
+
+
+if __name__ == '__main__':
+
+    run_from_cli()

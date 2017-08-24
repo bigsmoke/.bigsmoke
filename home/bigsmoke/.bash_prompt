@@ -1,0 +1,64 @@
+# This script will give you the very ultimate in Bash prompts.
+# It is released by the 1337357 of masters into the public domain.
+
+prompt_command() {
+    EXIT_STATUS=$?
+
+    case ${TERM} in
+        xterm*|rxvt*|Eterm|aterm|kterm|gnome*|interix)
+            echo -ne "\033]0;${USER}@${HOSTNAME%%.*}:${PWD/$HOME/~}\007"
+            ;;
+        screen)
+            echo -ne "\033_${USER}@${HOSTNAME%%.*}:${PWD/$HOME/~}\033\\"
+            ;;
+    esac
+
+    local BGJOBS_COLOR="\[\e[1;90m\]"
+    local BGJOBS=""
+    if [ "$(jobs | head -c1)" ]; then
+       BGJOBS=" $BGJOBS_COLOR(bg:\j)"
+    fi 
+
+    local EMPOWER_COLOR="\[\e[1;34m\]"
+    local EMP=""
+    if [ -n "$YTEC_TOOLING_ROOT" ]; then
+      EMP="${EMPOWER_COLOR}Y "
+    fi
+
+    local CHROOT=""
+    # Use ischroot preferrable, otherwise fallback to /proc/ heuristic
+    if [ -x "`which ischroot`" ] && ischroot || [ "$EUID" -eq 0 -a -x /proc/1/root/. -a ! /proc/1/root/. -ef / ]; then
+        CHROOT=" \[\e[1;36m\](chroot)"
+    fi
+
+    local VIRTUAL=""
+    if [ -n "$VIRTUAL_ENV" ]; then
+        VIRTUAL=" \[\e[1;36m\](virtual)"
+    fi
+
+    local DOLLAR_COLOR="\[\e[1;32m\]"
+    if [ "$EXIT_STATUS" -ne 0 ]; then
+        DOLLAR_COLOR="\[\e[1;31m\]"
+    fi
+    local DOLLAR="$DOLLAR_COLOR\\\$"
+
+    local USER_COLOR="\[\e[1;32m\]"
+    if [ "${EUID}" == 0 ]; then
+        USER_COLOR="\[\e[41;1;32m\]";
+    fi
+
+    local SCM_COLOR="\[\e[1;35m\]"
+    local SCM=""
+    [ -x /usr/bin/git ] && /usr/bin/git rev-parse --is-inside-working-tree >/dev/null 2>&1 && {
+        SCM=" $SCM_COLOR<$(/usr/bin/git rev-parse --abbrev-ref HEAD)>"
+    }
+
+    PS1="$USER_COLOR\u\[\e[32m\]@\[\e[32m\]\H:\[\e[m\]$VIRTUAL$CHROOT \[\e[1;34m\]\w\[\e[m\]$SCM\[\e[m\]\n\
+$EMP$DOLLAR$BGJOBS \[\e[m\]"
+}
+
+export -f prompt_command
+export PROMPT_COMMAND="prompt_command"
+
+# vim: ft=sh
+

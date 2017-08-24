@@ -1,4 +1,4 @@
-#include ".Xdefaults.XTerm"
+#include ".Xresources.XTerm"
 
 
 Xcursor.theme: Silver

@@ -4,10 +4,11 @@ from difflib import unified_diff
 from io import StringIO
 from subprocess import Popen, PIPE
 from tempfile import NamedTemporaryFile
-import math
 import cmd
 import itertools
 import logging
+import math
+import pwd
 import os
 import sys
 import unittest
@@ -267,7 +268,7 @@ def load_configurations(options):
                 source = full_path
 
                 # Extract the full path based on the layout of the source dir
-                destination = os.path.join(root, filename)[len(options.source_dir):]
+                destination = os.path.join(root, filename)[len(os.path.dirname(__file__)):]
 
                 # Convert __home__ into the actual home folder of this user
                 if destination.startswith(HOME_NEEDLE):
@@ -291,7 +292,8 @@ def run_from_cli():
     ch.setFormatter(formatter)
     logger.addHandler(ch)
 
-    default_source_directory = os.path.join(os.path.dirname(__file__), 'configs')
+    username = pwd.getpwuid(os.getuid()).pw_name
+    default_source_directory = os.path.join(os.path.dirname(__file__), 'home', username)
     if not os.path.exists(default_source_directory):
         logger.warning("Directory %s does not exist, using example-configs instead.", default_source_directory)
         default_source_directory = os.path.join(os.path.dirname(__file__), 'example-configs')

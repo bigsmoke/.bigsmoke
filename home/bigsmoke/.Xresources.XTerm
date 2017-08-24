@@ -1,0 +1,38 @@
+XTerm*background: black
+XTerm*Foreground: Grey
+
+XTerm*faceName: Liberation Mono
+XTerm*faceSize: 10
+
+XTerm*on2Clicks: regex [^  \n]+
+
+XTerm*bellIsUrgent: true
+
+! Make the terminal 127 by 42 characters in size
+XTerm*geometry: 127x44+64+0
+
+! By default, XTerm composes special chars with META. With this setting I can work my readline magic instead.
+XTerm*metaSendsEscape: true
+
+! Bracketed paste mode requires the allowWindowOps resource to be true 
+XTerm*allowWindowOps: true
+
+XTerm*saveLines: 1000
+
+XTerm*selectToClipboard: true
+
+! Don't jump to the bottom when there's output
+XTerm*VT100*scrollTtyOutput: false
+
+XTerm*VT100.Translations: #override \
+     Shift <Key>Insert: insert-selection(CLIPBOARD) \n\
+    ~Shift <Key>Insert: insert-selection(PRIMARY) \n\
+    Ctrl Shift <Key>C: select-end(CLIPBOARD, CUT_BUFFER1) \n\
+    Ctrl Shift <Key>V: insert-selection(CLIPBOARD, CUT_BUFFER1) \n\
+    ~Shift ~Ctrl ~Meta <Btn2Up>: insert-selection(PRIMARY, CUT_BUFFER0) \n\
+     Shift ~Ctrl ~Meta <Btn2Up>: insert-selection(CLIPBOARD, CUT_BUFFER1) \n\
+    Shift <Key>Up: scroll-back(1) \n\
+    Shift <Key>Down: scroll-forw(1)
+
+
+! vim: set syntax=xdefaults expandtab tabstop=4 shiftwidth=4:

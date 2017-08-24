@@ -1,0 +1,6 @@
+#include ".Xdefaults.XTerm"
+
+
+Xcursor.theme: Silver
+Xcursor.size: 40
+

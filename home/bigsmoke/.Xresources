@@ -1,3 +1,5 @@
+! https://superuser.com/a/243916 describes the difference between .Xresources and .Xdefaults
+
 #include ".Xresources.XTerm"
 
 

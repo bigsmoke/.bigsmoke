@@ -7,13 +7,13 @@ alias t='~/bin/tmux-ticket'
 alias tmux='tmux -2'
 if [ -x "$HOME/bin/nvim.appimage" ]; then
     alias nvim=~/bin/nvim.appimage
+else
+    unalias nvim
 fi
 alias vim='nvim'
 alias vi='nvim'
 export PATH=~/bin:~/.local/bin:$PATH
 export EDITOR=nvim
-
-alias vim=~/bin/nvim.appimage
 
 if [ -x "$HOME/projects/ytec-tooling/usr/local/bin/ssh-agent-attach.sh" ]; then
     a

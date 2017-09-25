@@ -10,6 +10,7 @@ import logging
 import math
 import pwd
 import os
+import shutil
 import sys
 import unittest
 
@@ -164,6 +165,7 @@ class SourceConfig:
 
     def are_there_uncommitted_changes(self):
         proc = Popen(['git', 'diff-index', '--quiet', 'HEAD', self.source])
+        proc.communicate()
         return proc.returncode != 0
 
     def update(self):
@@ -177,15 +179,15 @@ class SourceConfig:
                         logger.warning('Made backup of {} as {}'.format(self.destination, backup.name))
             with open(self.destination, 'w') as handle:
                 handle.write('\n'.join(new_config) + '\n')
-            return True
+            return (True, self.destination)
         elif self.status == 'destination-has-changed':
             if self.are_there_uncommitted_changes():
                 logger.warning('Not overwriting {}, because of uncommitted changes.'.format(self.source))
-                return False
+                return (False, None)
             else:
                 # TODO: Add support for sections
-                shutil.copyfile(self.source, self.destination) 
-                return True
+                shutil.copyfile(self.destination, self.source) 
+                return (True, self.source)
 
     def which_is_newer(self):
         """In case that the source and destination files are different, is the fs or the repo version newer?"""
@@ -577,8 +579,9 @@ The columns in the overview are as follows:
         '''Update the configuration file. To see what will be done use the command `diff <id>`
 
 A backup of your old configuration file will be placed in your temporary folder (usually /tmp/)'''
-        if conf.update():
-            print('Updated {}'.format(conf.destination))
+        (did_update, updated_path) = conf.update()
+        if did_update:
+            print('Updated {}'.format(updated_path))
 
 
     def _do_reread(self):

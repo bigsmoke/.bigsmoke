@@ -2,7 +2,7 @@
 from collections import OrderedDict
 from difflib import unified_diff
 from io import StringIO
-from subprocess import Popen, PIPE
+from subprocess import Popen, PIPE, DEVNULL
 from tempfile import NamedTemporaryFile
 import cmd
 import itertools
@@ -116,14 +116,16 @@ def read_sections(configfile):
 
 
 class SourceConfig:
-    '''
+    """
 
     Statuses:
     - new: destination file is missing
-    - out-of-sync: source file has sections which the destination file doesn't have
-    - can-be-updated: destination/source both have/don't have sections but differ in content
+    - new-source-sections: source file has sections which the destination file doesn't have
+    The below statuses imply that destination & source both have or don't have the same sections:
+    - destination-is-old-version: sync will overwrite destination file without risking data loss
+    - destination-has-changed: sync will overwrite source file unless if there are uncommitted changes
     - up-to-date: destination/source are the same
-    '''
+    """
 
     def __init__(self, source=None, destination=None):
         self.source = source
@@ -146,29 +148,73 @@ class SourceConfig:
             return
 
         if not self.have_same_sections:
-            self.status = 'out-of-sync'
+            self.status = 'new-source-sections'
             return
 
         logger.debug('Generating diff between %s and %s', self.source, self.destination)
         diff = self.diff()
 
         if next(diff, None) is not None:
-            logger.info('Configuration {} can be updated.'.format(self.destination))
-            self.status = 'can-be-updated'
+            self.status = self.which_is_newer()
+            logger.info('Configuration {} {}.'.format(self.destination, self.status))
             return
 
         logger.info('Configuration file {} is up-to-date'.format(self.destination))
         self.status = 'up-to-date'
 
+    def are_there_uncommitted_changes(self):
+        proc = Popen(['git', 'diff-index', '--quiet', 'HEAD', self.source])
+        return proc.returncode != 0
+
     def update(self):
         new_config = self.generate_config()
-        if os.path.exists(self.destination):
-            with NamedTemporaryFile('w', prefix=self.destination.replace(os.sep, '_'), delete=False) as backup:
-                with open(self.destination) as oldfile:
-                    backup.write(oldfile.read())
-                logger.warning('Made backup of {} as {}'.format(self.destination, backup.name))
-        with open(self.destination, 'w') as handle:
-            handle.write('\n'.join(new_config) + '\n')
+        if self.status == 'destination-is-old-version' or self.status == 'new':
+            if self.status == 'destination-is-old-version':
+                if os.path.exists(self.destination):
+                    with NamedTemporaryFile('w', prefix=self.destination.replace(os.sep, '_'), delete=False) as backup:
+                        with open(self.destination) as oldfile:
+                            backup.write(oldfile.read())
+                        logger.warning('Made backup of {} as {}'.format(self.destination, backup.name))
+            with open(self.destination, 'w') as handle:
+                handle.write('\n'.join(new_config) + '\n')
+            return True
+        elif self.status == 'destination-has-changed':
+            if self.are_there_uncommitted_changes():
+                logger.warning('Not overwriting {}, because of uncommitted changes.'.format(self.source))
+                return False
+            else:
+                # TODO: Add support for sections
+                shutil.copyfile(self.source, self.destination) 
+                return True
+
+    def which_is_newer(self):
+        """In case that the source and destination files are different, is the fs or the repo version newer?"""
+        def get_git_blob_hash(file_path):
+            proc = Popen(['git', 'hash-object', '--no-filters', file_path], stdout=PIPE)
+            stdout, stderr = proc.communicate()
+            blob_hash = stdout.decode('UTF-8').strip()
+            return blob_hash
+
+        def get_git_rev_list():
+            proc = Popen(['git', 'rev-list', '--all'], stdout=PIPE)
+            stdout, stderr = proc.communicate()
+            return stdout.decode('UTF-8').strip().split("\n")
+
+        def get_git_blob_first_committed(blob_hash):
+            for commit_hash in get_git_rev_list():
+                proc = Popen(['git', 'ls-tree', '-r', commit_hash], stdout=PIPE)
+                stdout, stderr = proc.communicate()
+                for line in stdout.decode('UTF-8').strip().split("\n"):
+                    if blob_hash in line:
+                        return commit_hash
+            return None
+
+        print(get_git_blob_first_committed(get_git_blob_hash(self.destination)))
+        commit_hash = get_git_blob_first_committed(get_git_blob_hash(self.destination))
+        if commit_hash:
+            return 'destination-is-old-version'
+        else:
+            return  'destination-has-changed'
 
     def diff(self):
         source = self.generate_config()
@@ -409,8 +455,8 @@ class Cui(CmdExitMixin, cmd.Cmd):
         self._do_reread()
         print('')
 
-        print('{:>3} {:^8} {:^17} {:>5} {:^5} {:30}'.format('ID', 'Type', 'Status', '#same', '#diff', 'Configuration file'))
-        print('{:-^3} {:-^8} {:-^17} {:->5} {:->5} {:-^30}'.format(*([''] * 99)))
+        print('{:>3} {:^8} {:^27} {:>5} {:^5} {:30}'.format('ID', 'Type', 'Status', '#same', '#diff', 'Configuration file'))
+        print('{:-^3} {:-^8} {:-^27} {:->5} {:->5} {:-^30}'.format(*([''] * 99)))
         for (one_based_index, conf) in enumerate(self.configurations, start=1):
             if conf.destination_type == 'sections':
                 nr_of_same_sections = conf.nr_of_same_sections
@@ -422,7 +468,7 @@ class Cui(CmdExitMixin, cmd.Cmd):
             status = conf.status
             if status == 'up-to-date':
                 status = self.color(status, 'green')
-            elif status == 'out-of-sync':
+            elif status == 'new-source-sections':
                 status = self.color(status, 'red')
             else:
                 status = self.color(status, 'yellow')
@@ -430,9 +476,9 @@ class Cui(CmdExitMixin, cmd.Cmd):
             # We need to do our own padding since ''.format() will count
             # invisible colour codes as well.
             if self.options.color:
-                padding_needed = 17 - len(conf.status)
+                padding_needed = 27 - len(conf.status)
             else:
-                padding_needed = 17 - len(status)
+                padding_needed = 27 - len(status)
 
             half_of_that = padding_needed / 2.0
             status = '{}{}{}'.format(
@@ -441,7 +487,7 @@ class Cui(CmdExitMixin, cmd.Cmd):
                 ' ' * math.floor(half_of_that)
             )
 
-            print('{:>3} {:^8} {} {:>5} {:>5} {}'.format(
+            print('{:>3} {:^8} {:^} {:>5} {:>5} {}'.format(
                 one_based_index, 
                 conf.destination_type,
                 status, 
@@ -496,17 +542,21 @@ The columns in the overview are as follows:
         split up: running `update <ID>` will only replace parts of your
         configuration file. The latter means the whole file will be replaced
 
-  - Status: Either 'new', 'out-of-sync', 'can-be-updated' or 'up-to-date'. 
+  - Status: Either 'new', 'new-source-sections', 'destination-is-old-version',
+        'destination-has-changed' or 'up-to-date'. 
 
         An explanation per status:
 
         - new: your configuration file is currently missing. It will be created
           when running `update`
-        - out-of-sync: your configuration file has different sections and thus
+        - new-source-sections: your configuration file has different sections and thus
           cannot be partly updated.  The whole file will be replaced on running
           `update`
-        - can-be-updated: your configuration file has the right sections and
-          the content differs.
+
+        The below statuses imply that your configuration files both have no section or
+        that the sections match:
+        - destination-is-old-version: your configuration file exists in Git history.
+        - destination-has-changed: your configuration file is different from what is found in Git.
         - up-to-date: your configuration file is already how it should be.
 
   - #same: In case the file uses sections: how many sections are up-to-date
@@ -527,8 +577,8 @@ The columns in the overview are as follows:
         '''Update the configuration file. To see what will be done use the command `diff <id>`
 
 A backup of your old configuration file will be placed in your temporary folder (usually /tmp/)'''
-        conf.update()
-        print('Updated {}'.format(conf.destination))
+        if conf.update():
+            print('Updated {}'.format(conf.destination))
 
 
     def _do_reread(self):

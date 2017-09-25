@@ -1,0 +1,11 @@
+#!/bin/bash
+HOST="vpn.victronenergy.com"
+USERNAME="rvandermolen"
+
+if [ "$#" -ne 0 ]; then
+	echo "This script does not take any arguments."
+	exit 2
+fi
+
+echo "Your username: $USERNAME"
+exec sudo /usr/sbin/openconnect --user "$USERNAME" "$HOST"

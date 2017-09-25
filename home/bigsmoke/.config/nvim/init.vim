@@ -68,3 +68,7 @@ endfunction
 " Terminal settings
 au TermOpen * setlocal scrollback=10000
 tnoremap <Esc> <C-\><C-n>
+
+autocmd BufEnter *.shpaml :set filetype=haml
+autocmd BufEnter *.shpaml :set syntax=shpaml
+autocmd BufEnter *.shpaml :syntax sync fromstart

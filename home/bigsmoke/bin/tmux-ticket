@@ -1,16 +1,21 @@
 #!/bin/bash
 
 if [ $# -eq 0 ]; then
-  echo "Usage: `basename $0` [ticket_no]"
+  echo "Usage: $(basename "$0") [ticket_no]"
 fi
 
 ticket_number=$1
+if ! [[ $ticket_number =~ ^[0-9]+$ ]]; then
+  echo "Not a ticket number: $ticket_number" >&2
+  exit 1
+fi
 
 mkdir -p ~/issues/"$ticket_number"  # Create issue dir if it doesn't already exist
 export YTEC_ISSUE_NUMBER="$ticket_number"
-export YTEC_ISSUE_DIR="~/issues/$ticket_number"
+export YTEC_ISSUE_DIR="$HOME/issues/$ticket_number"
+export NVIM_SESSION_FILE="$YTEC_ISSUE_DIR/sess.vim"
 
-session_found=$(tmux list-sessions -F#{session_name} 2>/dev/null | grep "$ticket_number")
+session_found=$(tmux list-sessions -F"#{session_name}" 2>/dev/null | grep "$ticket_number")
 if [ -n "$session_found" ]; then
   echo "Attaching to: $ticket_number"
   /usr/bin/tmux -2 a -t "$ticket_number"

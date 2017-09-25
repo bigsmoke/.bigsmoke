@@ -1,0 +1,3 @@
+#!/bin/bash
+
+cd $YTEC_ISSUE_DIR

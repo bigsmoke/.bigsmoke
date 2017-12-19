@@ -1,0 +1,6 @@
+multiuser on
+caption always "%{= kB}%-Lw%{=s kB}%50>%n%f* %t %{-}%+Lw%<"
+startup_message off
+hardstatus alwayslastline "%= %H | %l | [%D %M %d, %c:%s]"
+
+termcapinfo xterm 'hs:ts=\E]2;:fs=\007:ds=\E]2;screen\007'

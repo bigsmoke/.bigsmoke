@@ -7,10 +7,14 @@ if [[ $- != *i* ]] ; then
 fi
 
 
-# Put your fun stuff here.
 export EMAIL=rowan@bigsmoke.us
 export NFSSH=ssh.phx.nearlyfreespeech.net
 export M15=molensteen.halfgaar.net
+
+if [ "$HOSTNAME" == "duivenkracht" ]; then
+    export VICTRON_WWW_ROOT=~/projects/victronenergy-cms/
+    export VICTRON_WWW_URL=http://www.bigsmoke.victronenergy.com/
+fi
 
 if [ "$TERM" != "screen-256color" ]; then
     export TERM=xterm-256color

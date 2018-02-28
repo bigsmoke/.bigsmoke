@@ -52,8 +52,8 @@ set mousefocus
 
 set clipboard=unnamedplus
 
-map <silent> <F7> :call UpdateTags()<cr><cr>
-map <silent> <F8> :call UpdateAllTags()<cr><cr>
+map <silent> <F7> :call UpdateTags()<cr>
+map <silent> <F8> :call UpdateAllTags()<cr>
 
 function UpdateTags()
     let tagfile = system('update-tags')
@@ -72,3 +72,5 @@ tnoremap <Esc> <C-\><C-n>
 autocmd BufEnter *.shpaml :set filetype=haml
 autocmd BufEnter *.shpaml :set syntax=shpaml
 autocmd BufEnter *.shpaml :syntax sync fromstart
+autocmd BufEnter *.shpaml :syntax sync fromstart
+autocmd FileType shpaml :set shiftwidth=4 tabstop=4

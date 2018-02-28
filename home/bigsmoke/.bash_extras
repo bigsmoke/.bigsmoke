@@ -44,3 +44,12 @@ export -f lsess
 #if [ -f "/etc/bash.bash_prompt" ]; then
 #    . "/etc/bash.bash_prompt"
 #fi
+
+if [ -n "$TMUX" ]; then
+    # update_environment() makes it so that tmux's update-environment option actually does something
+    # in the currently opened shells instead of just when you spawn a new shell.
+    update_environment() {
+        eval "$(tmux show-environment | grep -E '^(SSH_AUTH_SOCK|SSH_CONNECTION|DISPLAY|BS_UPDATE_ENV_TEST)' | xargs echo export)"
+    }
+    trap 'update_environment' DEBUG
+fi

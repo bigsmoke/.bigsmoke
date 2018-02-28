@@ -74,3 +74,13 @@ autocmd BufEnter *.shpaml :set syntax=shpaml
 autocmd BufEnter *.shpaml :syntax sync fromstart
 autocmd BufEnter *.shpaml :syntax sync fromstart
 autocmd FileType shpaml :set shiftwidth=4 tabstop=4
+
+function TmuxUpdateEnvironment()
+    let $DISPLAY = system('tmux show-environment|grep "^DISPLAY"')
+    let $SSH_AUTH_SOCK = system('tmux show-environment|grep -E "^SSH_AUTH_SOCK"')
+    let $SSH_CONNECTION = system('tmux show-environment|grep -E "^SSH_CONNECTION"')
+    let $BS_UPDATE_ENV_TEST = system('tmux show-environment|grep -E "^BS_UPDATE_ENV_TEST"')
+    echo "Propegated tmux environment into VIM session."
+endfunction
+
+command TmuxUpdateEnvironment :call TmuxUpdateEnvironment()

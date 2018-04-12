@@ -9,6 +9,7 @@ export EDITOR=nvim
 alias vim="$EDITOR"
 alias vi="$EDITOR"
 alias cdfab="cd ~/projects/ytec-tooling/usr/local/lib/python/ytec_fabric"
+alias verynice="nice -n 19 ionice -n 7"
 export PATH=~/bin:~/.local/bin:$PATH
 
 if [ -x "$HOME/projects/ytec-tooling/usr/local/bin/ssh-agent-attach.sh" ]; then

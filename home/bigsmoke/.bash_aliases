@@ -4,6 +4,7 @@ alias d='ssh -A -X duivenkracht.ytec.nl'
 alias i='~/bin/mkissuedir'
 alias s='synergize'
 alias t='~/bin/tmux-ticket'
+alias y="echo '$(tput setaf 4)$(tput bold)Initalizing YTEC environment…$(tput sgr0)'; a && ssh-add && e && s"
 alias tmux='tmux -2'
 export EDITOR=nvim
 alias vim="$EDITOR"

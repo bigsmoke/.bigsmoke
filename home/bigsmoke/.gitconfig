@@ -1,0 +1,28 @@
+[user]
+	name = Rowan Rodrik van der Molen
+	email = rowan@bigsmoke.us
+[color]
+	diff = auto
+	status = auto
+	branch = auto
+	ui = true
+
+[merge "keepMine"]
+	name = always keep mine during merge
+	driver = keepMine.sh %O %A %B
+[push]
+	default = simple
+[core]
+	pager = diff-so-fancy | less --tabs=4 -RFX 
+[color "diff-highlight"]
+	oldNormal = red bold
+	oldHighlight = red bold 52
+	newNormal = green bold
+	newHighlight = green bold 22
+[color "diff"]
+	meta = 227
+	frag = magenta bold
+	commit = 227 bold
+	old = red bold
+	new = green bold
+	whitespace = red reverse

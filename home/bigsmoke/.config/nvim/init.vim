@@ -2,7 +2,8 @@ set tags=./._tags;
 
 call plug#begin('~/.local/share/nvim/plugged')
 
-Plug 'scrooloose/syntastic'
+"Plug 'scrooloose/syntastic'
+Plug 'neomake/neomake'
 
 Plug 'vim-airline/vim-airline'
 Plug 'vim-airline/vim-airline-themes'
@@ -84,3 +85,20 @@ function TmuxUpdateEnvironment()
 endfunction
 
 command TmuxUpdateEnvironment :call TmuxUpdateEnvironment()
+
+" http://vim.wikia.com/wiki/Highlight_unwanted_spaces
+highlight ExtraWhiteSpace ctermbg=red guibg=red
+" Show trailing whitespace:
+match ExtraWhiteSpace /\s\+$/
+" Show tabs:
+match ExtraWhiteSpace /\t/
+
+function! AmIRunningOnBatteryPower()
+    return filereadable('/sys/class/power_supply/AC/online') && readfile('/sys/class/power_supply/AC/online') == ['0']
+endfunction
+
+if AmIRunningOnBatteryPower()
+    call neomake#configure#automake('w')
+else
+    call neomake#configure#automake('nw', 1000)
+endif

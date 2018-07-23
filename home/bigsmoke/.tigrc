@@ -1,1 +1,3 @@
 set wrap-lines = yes
+set mouse = yes
+set mouse-scroll = 1

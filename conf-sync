@@ -343,6 +343,8 @@ def run_from_cli():
     username = pwd.getpwuid(os.getuid()).pw_name
     default_source_directory = os.path.join(os.path.dirname(__file__), 'home', username)
     if not os.path.exists(default_source_directory):
+        default_source_directory = os.path.join(os.path.dirname(__file__), 'srv', 'http', username)
+    if not os.path.exists(default_source_directory):
         logger.warning("Directory %s does not exist, using example-configs instead.", default_source_directory)
         default_source_directory = os.path.join(os.path.dirname(__file__), 'example-configs')
 

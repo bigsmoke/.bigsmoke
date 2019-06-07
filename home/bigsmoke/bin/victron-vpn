@@ -1,6 +1,7 @@
 #!/bin/bash
 HOST="vpn.victronenergy.com"
 USERNAME="rvandermolen"
+USERGROUP="2"
 
 if [ "$#" -ne 0 ]; then
 	echo "This script does not take any arguments."
@@ -8,4 +9,4 @@ if [ "$#" -ne 0 ]; then
 fi
 
 echo "Your username: $USERNAME"
-exec sudo /usr/sbin/openconnect --user "$USERNAME" "$HOST"
+exec sudo /usr/sbin/openconnect --user "$USERNAME" --authgroup "$USERGROUP" "$HOST"

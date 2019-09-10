@@ -1,4 +1,6 @@
 #!/bin/bash
+#
+# .xsessionrc is a Debian thingie; only xsession is truly standard X-Windows fare.
 
 . ~/.sh_env
 
@@ -17,24 +19,25 @@ else
 fi
 
 
+# TODO: xmodmap
+
+
 XSCREENSAVER_LOG_FILE=~/.xscreensaver.log
 xscreensaver -no-splash &
 xscreensaver-command -watch | while read -r line
 do
     echo "$(date) $line" >> $XSCREENSAVER_LOG_FILE
-    if [[ "$line" =~ ^BLANK ]] || [[ "$line" =~ ^LOCK ]]
-    then
-        if [[ "$blanked" == "" ]]
-        then
-            blanked="yes"
-            ssh-add -D  # Remove keys from ssh-agent in case somebody cracks open my screen.
-            echo "$(date) Locked monitor" >> $XSCREENSAVER_LOG_FILE
-        fi
-    fi
-
-    if [[ "$line" =~ ^UNBLANK ]]
-    then
-        blanked=''
-        echo "$(date) Unlocked monitor" >> $XSCREENSAVER_LOG_FILE
-    fi
-done
+    case "$line" in
+        "BLANK"* | "LOCK"*)
+            if [ -z "$blanked" ]; then
+                blanked="yes"
+                ssh-add -D  # Remove keys from ssh-agent in case somebody cracks open my screen.
+                echo "$(date) Locked monitor" >> $XSCREENSAVER_LOG_FILE
+            fi
+            ;;
+        "UNBLANK"*)
+            blanked=''
+            echo "$(date) Unlocked monitor" >> $XSCREENSAVER_LOG_FILE
+            ;;
+    esac
+done &

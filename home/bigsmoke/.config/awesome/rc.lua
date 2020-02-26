@@ -209,7 +209,7 @@ awful.screen.connect_for_each_screen(function(s)
     set_wallpaper(s)
 
     -- Each screen has its own tag table.
-    awful.tag({ "1", "2", "3", "4", "5", "6", "7", "8", "9" }, s, awful.layout.layouts[1])
+    awful.tag({ "1", "2", "3", "4", "5", "6", "7", "8", "9", "0" }, s, awful.layout.layouts[1])
 
     -- Create a promptbox for each screen
     s.mypromptbox = awful.widget.prompt()
@@ -267,6 +267,12 @@ root.buttons(gears.table.join(
 
 -- {{{ Key bindings
 globalkeys = gears.table.join(
+    awful.key({ "Any",            }, "#75", function()
+        awful.util.spawn('chromium-browser')
+    end),
+    awful.key({ modkey,           }, "b", function()
+        awful.util.spawn('chromium-browser')
+    end),
     awful.key({ modkey,           }, "Scroll_Lock",
     function()
         awful.util.spawn('xscreensaver-command --lock')
@@ -422,22 +428,35 @@ clientkeys = gears.table.join(
         {description = "(un)maximize horizontally", group = "client"})
 )
 
+for screen_i = 1, screen.count() do
+    local tag = awful.tag.gettags(screen_i)[10]
+    awful.tag.viewonly(tag)
+end
+
 -- Bind all key numbers to tags.
 -- Be careful: we use keycodes to make it work on any keyboard layout.
 -- This should map on the top row of your keyboard, usually 1 to 9.
-for i = 1, 9 do
+for i = 1, 10 do
     globalkeys = gears.table.join(globalkeys,
         -- View tag only.
         awful.key({ modkey }, "#" .. i + 9,
                   function ()
-                        for screen = 1, screen.count() do
+                        for tag_i = 1, 9 do
+                            local tag = awful.tag.gettags(1)[tag_i]
+                            if tag_i ~= i and tag.selected then
+                                awful.tag.viewtoggle(tag)
+                            elseif tag_i == i and not tag.selected then
+                                awful.tag.viewtoggle(tag)
+                            end
+                        end
+                        for screen = 2, screen.count() do
                             local tag = awful.tag.gettags(screen)[i]
                             if tag then
                                awful.tag.viewonly(tag)
                             end
                         end
                   end,
-                  {description = "view tag #"..i, group = "tag"}),
+                  {description = "view tag #"..i.." on screen 2 & 3", group = "tag"}),
         -- Toggle tag display.
         awful.key({ modkey, "Control" }, "#" .. i + 9,
                   function ()
@@ -529,9 +548,16 @@ awful.rules.rules = {
       }, properties = { titlebars_enabled = true }
     },
 
-    -- Set Firefox to always map on the tag named "2" on screen 1.
-    -- { rule = { class = "Firefox" },
-    --   properties = { screen = 1, tag = "2" } },
+    -- Selenium-driven browser windows are spawned from duivenkracht.
+    { rule = { class = "Chromium-browser", machine = "duivenkracht" },
+        properties = { floating = true, screen = 3 } },
+    { rule = { class = "Firefox", machine = "duivenkracht" },
+        properties = { flaoting = true, screen = 3 } },
+    { rule = { class = "Firefox" },
+        properties = { flaoting = true, screen = 3 } },
+
+--    { rule = { class = "Chromium-browser" },
+--        properties = { screen = 2 } },
 }
 -- }}}
 
@@ -541,7 +567,20 @@ client.connect_signal("manage", function (c)
     -- Set the windows at the slave,
     -- i.e. put it at the end of others instead of setting it master.
     -- if not awesome.startup then awful.client.setslave(c) end
-
+    
+    -- I capture signals because rules don't do what I want
+    --naughty.notify({title=c.class, text=c.name})
+    if c.class == "VirtualBox" or c.class == "VirtualBox Machine" or c.name == "Win7Pro [Running] - Oracle VM VirtualBox : 2" then
+        local win7tag_screen1 = awful.tag.find_by_name(screen[1], "7")
+        local win7tag_screen2 = awful.tag.find_by_name(screen[2], "7")
+        if c.name == "Win7Pro [Running] - Oracle VM VirtualBox : 2" then
+            c:move_to_tag(win7tag_screen1)
+            --c:move_to_tag(win7tag_screen2)  -- This keeps it on the current tag for some reason.
+        else
+            c:move_to_tag(win7tag_screen1)
+        end
+    end
+    
     if awesome.startup and
       not c.size_hints.user_position
       and not c.size_hints.program_position then

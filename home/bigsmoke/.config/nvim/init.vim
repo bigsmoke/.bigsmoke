@@ -2,8 +2,7 @@ set tags=./._tags;
 
 call plug#begin('~/.local/share/nvim/plugged')
 
-"Plug 'scrooloose/syntastic'
-Plug 'neomake/neomake'
+Plug 'dense-analysis/ale'
 
 Plug 'vim-airline/vim-airline'
 Plug 'vim-airline/vim-airline-themes'
@@ -37,7 +36,7 @@ nmap <leader>sw<up>    :topleft  new<CR>
 nmap <leader>sw<down>  :botright new<CR>
 " buffer
 nmap <leader>s<left>   :leftabove  vnew<CR>
-nmap <leader>s<right>  :rightbelow vnew<CR>
+nmap <leader>s<right>  :rightbelow wnew<CR>
 nmap <leader>s<up>     :leftabove  new<CR>
 nmap <leader>s<down>   :rightbelow new<CR>
 
@@ -53,18 +52,7 @@ set mousefocus
 
 set clipboard=unnamedplus
 
-map <silent> <F7> :call UpdateTags()<cr>
-map <silent> <F8> :call UpdateAllTags()<cr>
-
-function UpdateTags()
-    let tagfile = system('update-tags')
-    echo "Updated tags"
-endfunction
-
-function UpdateAllTags()
-    let tagfile = system('update-tags --all')
-    echo "Updated all tags"
-endfunction
+nmap <F8> <Plug>(ale_fix)
 
 " Terminal settings
 au TermOpen * setlocal scrollback=10000
@@ -98,7 +86,9 @@ function! AmIRunningOnBatteryPower()
 endfunction
 
 if AmIRunningOnBatteryPower()
-    call neomake#configure#automake('w')
-else
-    call neomake#configure#automake('nw', 1000)
+    let g:ale_lint_on_text_changed=never
 endif
+let g:ale_fixers = {
+\   '*': ['remove_trailing_lines', 'trim_whitespace'],
+\}
+let g:ale_fix_on_save = 1

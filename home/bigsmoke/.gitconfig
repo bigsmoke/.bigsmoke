@@ -14,6 +14,7 @@
 	default = simple
 [core]
 	pager = diff-so-fancy | less --tabs=4 -RFX 
+	commentChar = %
 [color "diff-highlight"]
 	oldNormal = red bold
 	oldHighlight = red bold 52
@@ -26,3 +27,6 @@
 	old = red bold
 	new = green bold
 	whitespace = red reverse
+[alias]
+	praise = blame
+	leaderboard = shortlog -sn --no-merges

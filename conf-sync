@@ -2,7 +2,7 @@
 from collections import OrderedDict
 from difflib import unified_diff
 from io import StringIO
-from subprocess import Popen, PIPE, DEVNULL
+from subprocess import call, Popen, PIPE, DEVNULL
 from tempfile import NamedTemporaryFile
 import cmd
 import itertools
@@ -177,6 +177,8 @@ class SourceConfig:
                         with open(self.destination) as oldfile:
                             backup.write(oldfile.read())
                         logger.warning('Made backup of {} as {}'.format(self.destination, backup.name))
+            if self.status == 'new' and not os.path.isdir(os.path.dirname(self.destination)):
+                call(['mkdir', 'p', os.path.dirname(self.destination)])
             with open(self.destination, 'w') as handle:
                 handle.write('\n'.join(new_config) + '\n')
             return (True, self.destination)

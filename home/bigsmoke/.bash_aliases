@@ -1,6 +1,6 @@
 alias a='. ~/projects/ytec-tooling/usr/local/bin/ssh-agent-attach.sh'
 alias e='. ~/projects/ytec-tooling/empower.sh'
-alias d='if [ $(hostname) = "duivenkracht" ]; then echo "$(tput setaf 1)$(tput bold)You are already on duivenkracht, you fool"!"$(tput sgr0)"; else ssh -A -X duivenkracht.ytec.nl; fi'
+alias d='if [ $(hostname) = "duivenkracht" ]; then echo "$(tput setaf 1)$(tput bold)You are already on duivenkracht, you fool"!"$(tput sgr0)"; else ssh -A -X -p 20022 duivenkracht.ytec.nl; fi'
 alias de='if [ $(hostname) = "duivenkracht" ]; then echo "$(tput setaf 1)$(tput bold)You are already on duivenkracht, you fool"!"$(tput sgr0)"; else echo "$(tput setaf 4)$(tput bold)Going on Pidgeon Power—duivenkracht!$(tput sgr0)"; ssh -A -X -t duivenkracht.ytec.nl ". ~/projects/ytec-tooling/empower.sh; bash"; fi'
 alias i='~/bin/mkissuedir'
 alias s='synergize'

@@ -15,8 +15,35 @@ export YTEC_ISSUE_NUMBER="$ticket_number"
 export YTEC_ISSUE_DIR="$HOME/issues/$ticket_number"
 export NVIM_SESSION_FILE="$YTEC_ISSUE_DIR/sess.vim"
 
-find_project_dirs() {
-  echo boo
+find_project_dir() {
+  local projects_dir="$1"
+  cd "$projects_dir" 
+  project_name="$(ticket $ticket_number project name | cut -d ':' -f 2 | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
+  parent_project_name="$(ticket $ticket_number project parent name | cut -d ':' -f 2 | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
+  matching_project_dirs=($(find . -maxdepth 1 -mindepth 1 \( -type d -or -type l \) -name "*${project_name}*" | sort))
+  if [ ${#matching_project_dirs[@]} -eq 0 ]; then
+    matching_project_dirs=($(find . -maxdepth 1 -mindepth 1 \( -type d -or -type l \) -name "*$parent_project_name*" | sort))
+  fi
+
+  if [ ${#matching_project_dirs[@]} -gt 1 ]; then
+    choices=()
+    for d in "${matching_project_dirs[@]}"; do
+      dirname=$(echo "$d" | sed -e 's#^./##')
+      dirtag=${d#*-}
+      choices+=("$dirtag" "$projects_dir/$dirname")
+    done
+    selected_tag=$(dialog --title "Select working dir" --menu "Choose one" 24 110 17 "${choices[@]}" 3>&2 2>&1 1>&3)
+    dollar='$'
+    project_dir=$(for d in "${choices[@]}"; do echo "$d"; done | awk "/^${selected_tag}${dollar}/{getline; print}")
+  elif [ ${#matching_project_dirs[@]} -eq 0 ]; then
+    echo "Enter your project dir first!" >&2
+    exit 1
+  else
+    project_dir=$matching_project_dirs
+  fi
+  project_dir="${project_dir/#\~/$projects_dir}"
+  echo "$project_dir"
+  cd "$project_dir"
 }
 
 session_found=$(tmux list-sessions -F"#{session_name}" 2>/dev/null | grep "$ticket_number")
@@ -24,35 +51,11 @@ if [ -n "$session_found" ]; then
   echo "Attaching to: $ticket_number"
   /usr/bin/tmux -2 a -t "$ticket_number"
 else
-  [[ "$(pwd)" = *"$HOME/projects/"* ]] || {
-    cd $HOME/projects
-    project_name="$(ticket $ticket_number project name | cut -d ':' -f 2 | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
-    parent_project_name="$(ticket $ticket_number project parent name | cut -d ':' -f 2 | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
-    matching_project_dirs=($(find . -maxdepth 1 -mindepth 1 \( -type d -or -type l \) -name "*${project_name}*" | sort))
-    if [ ${#matching_project_dirs[@]} -eq 0 ]; then
-      matching_project_dirs=($(find . -maxdepth 1 -mindepth 1 \( -type d -or -type l \) -name "*$parent_project_name*" | sort))
-    fi
-
-    if [ ${#matching_project_dirs[@]} -gt 1 ]; then
-      choices=()
-      for d in "${matching_project_dirs[@]}"; do
-        dirname=$(echo "$d" | sed -e 's#^./##')
-        dirtag=${d#*-}
-        choices+=("$dirtag" "~/projects/$dirname")
-      done
-      selected_tag=$(dialog --title "Select working dir" --menu "Choose one" 24 110 17 "${choices[@]}" 3>&2 2>&1 1>&3)
-      dollar='$'
-      project_dir=$(for d in "${choices[@]}"; do echo "$d"; done | awk "/^${selected_tag}${dollar}/{getline; print}")
-    elif [ ${#matching_project_dirs[@]} -eq 0 ]; then
-      echo "Enter your project dir first!" >&2
-      exit 1
-    else
-      project_dir=$matching_project_dirs
-    fi
-    project_dir="${project_dir/#\~/$HOME}"
-    echo "$project_dir"
-    cd "$project_dir"
-  }
+  if [[ "$HOSTNAME" = ltsp* ]] && [[ "$(pwd)" != *"/mnt/drive/projects/"* ]]; then
+    find_project_dir "/mnt/drive/projects"
+  elif [[ "$HOSTNAME" = "duivenkracht" ]] && [[ "$(pwd)" != *"$HOME/projects/"* ]]; then
+    find_project_dir "$HOME/projects"
+  fi 
 
   echo "Starting session: $ticket_number"
   /usr/bin/tmux -2 new -s "$ticket_number"

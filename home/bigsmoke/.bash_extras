@@ -16,10 +16,14 @@ if [ "$HOSTNAME" == "duivenkracht" ]; then
     export VICTRON_WWW_URL=http://www.bigsmoke.victronenergy.com/
 fi
 
+if [[ "$HOSTNAME" == ltsp* ]]; then
+    export PRISMA_VPN_USER=rvandermolen
+fi
+
 if [ "$TERM" != "screen-256color" ]; then
     export TERM=xterm-256color
 fi
-if [[ "$TERM" = xterm* ]]; then
+if [ "$TERM" = 'xterm' ]; then
     export COLORTERM="24bit"
 fi
 

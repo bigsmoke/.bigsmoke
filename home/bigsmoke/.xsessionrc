@@ -12,14 +12,17 @@
 monitors=$(xrandr | sed -n '/ connected /{s/ .*//;p}' | tr '\n' ' ')
 
 # Mind the space at the end!
-if [ "$monitors" = "HDMI-0 DVI-0 " ]; then
-    xrandr --output "DVI-0" --auto --rotate "normal" --output "HDMI-0" --rotate "normal" --auto --left-of "DVI-0"
+if [ "$monitors" = "DVI-D-1 HDMI-1 DP-1 " ]; then
+    xrandr --setmonitor "left" auto "DP-1"
+    xrandr --setmonitor "middle" auto "HDMI-1"
+    xrandr --setmonitor "right" auto "DVI-D-1"
 else
     echo "Unknown setup '$monitors'; please update this script ($0)."
 fi
 
 
-# TODO: xmodmap
+setxkbmap -option compose:ralt -option caps:ctrl_modifier
+# See ~/.XCompose for adding custom compose keys
 
 
 XSCREENSAVER_LOG_FILE=~/.xscreensaver.log
@@ -41,3 +44,7 @@ do
             ;;
     esac
 done &
+
+flameshot &
+
+mate-volume-control-applet &

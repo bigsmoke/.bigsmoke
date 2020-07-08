@@ -273,6 +273,7 @@ globalkeys = gears.table.join(
     awful.key({ modkey,           }, "b", function()
         awful.util.spawn('chromium-browser')
     end),
+    awful.key({ modkey, }, "Print", function() awful.util.spawn('flameshot gui') end),
     awful.key({ modkey,           }, "Scroll_Lock",
     function()
         awful.util.spawn('xscreensaver-command --lock')
@@ -449,6 +450,10 @@ for i = 1, 10 do
                                 awful.tag.viewtoggle(tag)
                             end
                         end
+                        if i == 10 then
+                            tag = awful.tag.gettags(1)[10]
+                            awful.tag.viewonly(tag)
+                        end
                         for screen = 2, screen.count() do
                             local tag = awful.tag.gettags(screen)[i]
                             if tag then
@@ -548,6 +553,9 @@ awful.rules.rules = {
       }, properties = { titlebars_enabled = true }
     },
 
+    { rule = { name = "Rocket.Chat" },
+        properties = { floating = false, screen = 1 } },
+
     -- Selenium-driven browser windows are spawned from duivenkracht.
     { rule = { class = "Chromium-browser", machine = "duivenkracht" },
         properties = { floating = true, screen = 3 } },
@@ -570,14 +578,13 @@ client.connect_signal("manage", function (c)
     
     -- I capture signals because rules don't do what I want
     --naughty.notify({title=c.class, text=c.name})
-    if c.class == "VirtualBox" or c.class == "VirtualBox Machine" or c.name == "Win7Pro [Running] - Oracle VM VirtualBox : 2" then
-        local win7tag_screen1 = awful.tag.find_by_name(screen[1], "7")
-        local win7tag_screen2 = awful.tag.find_by_name(screen[2], "7")
-        if c.name == "Win7Pro [Running] - Oracle VM VirtualBox : 2" then
-            c:move_to_tag(win7tag_screen1)
-            --c:move_to_tag(win7tag_screen2)  -- This keeps it on the current tag for some reason.
+    if c.name and string.find(c.name, "Win10Pro") ~= nil and string.find(c.name, "VirtualBox") ~= nil then
+        local win10tag_screen2 = awful.tag.gettags(2)[1]
+        local win10tag_screen3 = awful.tag.gettags(3)[1]
+        if string.find(c.name, " : 2") ~= nil then
+            c:move_to_tag(win10tag_screen3)
         else
-            c:move_to_tag(win7tag_screen1)
+            c:move_to_tag(win10tag_screen2)
         end
     end
     

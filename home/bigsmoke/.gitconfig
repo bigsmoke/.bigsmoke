@@ -1,6 +1,6 @@
 [user]
 	name = Rowan Rodrik van der Molen
-	email = rowan@bigsmoke.us
+	email = rowan@ytec.nl
 [color]
 	diff = auto
 	status = auto
@@ -15,6 +15,7 @@
 [core]
 	pager = diff-so-fancy | less --tabs=4 -RFX 
 	commentChar = %
+	excludesfile = ~/.gitignore
 [color "diff-highlight"]
 	oldNormal = red bold
 	oldHighlight = red bold 52

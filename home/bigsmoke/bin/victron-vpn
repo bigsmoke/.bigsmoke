@@ -1,12 +1,16 @@
 #!/bin/bash
 HOST="vpn.victronenergy.com"
-USERNAME="adm_rvandermolen"
-USERGROUP="g"
+if [ -z "$VICTRON_VPN_USERNAME" ]; then
+	VICTRON_VPN_USERNAME="adm_rvandermolen"
+fi
+if [ -z "$VICTRON_VPN_USERGROUP" ]; then
+	VICTRON_VPN_USERGROUP="g"
+fi
 
 if [ "$#" -ne 0 ]; then
 	echo "This script does not take any arguments."
 	exit 2
 fi
 
-echo "Your username: $USERNAME"
-exec sudo /usr/sbin/openconnect --user "$USERNAME" --authgroup "$USERGROUP" "$HOST"
+echo "Your username: $VICTRON_VPN_USERNAME"
+exec sudo /usr/sbin/openconnect --user "$VICTRON_VPN_USERNAME" --authgroup "$VICTRON_VPN_USERGROUP" "$HOST"

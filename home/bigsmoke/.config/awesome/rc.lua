@@ -560,9 +560,9 @@ awful.rules.rules = {
     { rule = { class = "Chromium-browser", machine = "duivenkracht" },
         properties = { floating = true, screen = 3 } },
     { rule = { class = "Firefox", machine = "duivenkracht" },
-        properties = { flaoting = true, screen = 3 } },
+        properties = { floating = true, screen = 3 } },
     { rule = { class = "Firefox" },
-        properties = { flaoting = true, screen = 3 } },
+        properties = { floating = true, screen = 3 } },
 
 --    { rule = { class = "Chromium-browser" },
 --        properties = { screen = 2 } },
@@ -575,19 +575,26 @@ client.connect_signal("manage", function (c)
     -- Set the windows at the slave,
     -- i.e. put it at the end of others instead of setting it master.
     -- if not awesome.startup then awful.client.setslave(c) end
-    
+
     -- I capture signals because rules don't do what I want
     --naughty.notify({title=c.class, text=c.name})
-    if c.name and string.find(c.name, "Win10Pro") ~= nil and string.find(c.name, "VirtualBox") ~= nil then
-        local win10tag_screen2 = awful.tag.gettags(2)[1]
-        local win10tag_screen3 = awful.tag.gettags(3)[1]
-        if string.find(c.name, " : 2") ~= nil then
-            c:move_to_tag(win10tag_screen3)
-        else
-            c:move_to_tag(win10tag_screen2)
+    if c.name and string.find(c.name, "Oracle VM VirtualBox") ~= nil and string.find(c.name, "Manager") == nil then
+        c.floating = true
+        c.maximized = true
+        if string.find(c.name, "Narrowcasting") ~= nil then
+            c:move_to_screen(2)
+        end
+        if string.find(c.name, "Win10Pro") ~= nil then
+            local win10tag_screen2 = awful.tag.gettags(2)[1]
+            local win10tag_screen3 = awful.tag.gettags(3)[1]
+            if string.find(c.name, " : 2") ~= nil then
+                c:move_to_tag(win10tag_screen3)
+            else
+                c:move_to_tag(win10tag_screen2)
+            end
         end
     end
-    
+
     if awesome.startup and
       not c.size_hints.user_position
       and not c.size_hints.program_position then

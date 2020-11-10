@@ -54,6 +54,7 @@ nmap <leader>s<down>   :rightbelow new<CR>
 nmap <F8> <Plug>(ale_fix)
 nmap <F9> :Black<CR>
 nmap <C-]> :ALEGoToDefinition<CR>
+nmap <F5> :ALESymbolSearch <cword><CR>
 nmap <F6> :ALEGoToDefinition<CR>
 nmap <F7> :ALEFindReferences<CR>
 

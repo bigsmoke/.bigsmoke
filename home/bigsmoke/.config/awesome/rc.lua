@@ -268,10 +268,13 @@ root.buttons(gears.table.join(
 -- {{{ Key bindings
 globalkeys = gears.table.join(
     awful.key({ "Any",            }, "#75", function()
-        awful.util.spawn('chromium-browser')
+        awful.util.spawn('chrome-launch')
     end),
     awful.key({ modkey,           }, "b", function()
-        awful.util.spawn('chromium-browser')
+        awful.util.spawn('chrome-launch bigsmoke@gmail.com')
+    end),
+    awful.key({ modkey,           }, "y", function()
+        awful.util.spawn('chrome-launch rowan@ytec.nl')
     end),
     awful.key({ modkey, }, "Print", function() awful.util.spawn('flameshot gui') end),
     awful.key({ modkey,           }, "Scroll_Lock",

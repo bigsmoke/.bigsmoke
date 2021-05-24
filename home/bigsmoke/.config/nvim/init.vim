@@ -107,7 +107,7 @@ let g:ale_fixers = {
 \   'javascript': ['prettier', 'eslint'],
 \}
 let g:ale_linters = {
-\   'python': ['pyls', 'pylint', 'mypy'],
+\   'python': ['pyright', 'pyls', 'pylint', 'mypy'],
 \}
 let g:ale_fix_on_save = 1
 let g:ale_completion_enabled = 0  " Use deoplete instead
